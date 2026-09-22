@@ -20,3 +20,6 @@ re/
 
 # 与项目无关的助手/编辑器残留
 .qoder-credits/
+
+# 发布用的打包目录
+dist-release/
