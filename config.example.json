@@ -1,0 +1,60 @@
+{
+  "listen": {
+    "host": "0.0.0.0",
+    "port": 8787,
+    "adminAllowFrom": ["127.0.0.1"],
+    "trustProxy": false
+  },
+  "adminToken": "${env:PROXY_ADMIN_TOKEN}",
+  "cors": { "origin": "*" },
+  "clientKeys": [
+    {
+      "key": "vk-replace-me",
+      "name": "本机项目",
+      "note": "可选备注",
+      "rpm": 60,
+      "dailyRequests": 2000,
+      "maxTokens": 4096,
+      "models": ["qclaw/pool-glm-5.2", "qclaw/pool-deepseek-v4-flash"],
+      "expiresAt": "2026-12-31T00:00:00.000Z",
+      "enabled": true
+    },
+    { "key": "vk-replace-me-2", "name": "只读探索", "rpm": 10 }
+  ],
+  "accounts": [
+    {
+      "id": "qclaw-a",
+      "type": "qclaw-aizone",
+      "base": "https://mmgrcalltoken.3g.qq.com/aizone/v1/",
+      "apiKey": "sk-...（总线 4055 按账号签发，src/bootstrap.mjs 自动填）",
+      "jwt": "登录态 JWT（X-OpenClaw-Token，30 天滑动续期）",
+      "guid": "账号绑定的 64 位 hex guid",
+      "account": "user_id",
+      "weight": 100
+    },
+    {
+      "id": "qclaw-b-local",
+      "type": "openclaw-gateway",
+      "base": "http://127.0.0.1:33187/",
+      "token": "把 src/bootstrap.mjs 输出的 gateway token 填这里",
+      "defaultAgent": "main",
+      "modelAgents": { "qclaw/pool-glm-5.2": "glm", "qclaw/pool-minimax-m3": "main" },
+      "weight": 100
+    },
+    {
+      "id": "byok-deepseek",
+      "type": "openai-compat",
+      "base": "https://api.deepseek.com/v1/",
+      "apiKey": "sk-...",
+      "models": ["deepseek-chat", "deepseek-reasoner"],
+      "weight": 50
+    }
+  ],
+  "scheduler": {
+    "cooldownAuthFailSeconds": 90,
+    "cooldownRateLimitSeconds": 120,
+    "cooldownServerErrorSeconds": 30,
+    "stickyRouting": true
+  },
+  "upstream": { "timeoutMs": 120000, "modelPrefix": "qclaw/" }
+}

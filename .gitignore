@@ -1,0 +1,22 @@
+# 运行数据与凭据 —— 一次提交就永久泄一次，git 历史里没有"删掉"这回事
+config.json
+config.json.bak
+config.pre-deploy-*.json
+.qpp-tokens.json
+*.log
+*.pid
+
+# 前端构建产物：作为 GitHub Release 资产发布，不进版本库
+web/
+
+# 依赖与缓存（构建期依赖，运行时零依赖）
+node_modules/
+__pycache__/
+.vite/
+dist/
+
+# 逆向工作底稿：抓包、pcap、以及腾讯客户端本体（444MB，不是本项目源码）
+re/
+
+# 与项目无关的助手/编辑器残留
+.qoder-credits/

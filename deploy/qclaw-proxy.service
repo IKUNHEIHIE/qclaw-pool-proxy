@@ -1,0 +1,32 @@
+[Unit]
+Description=QClaw pool proxy (OpenAI/Anthropic compatible)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 非 root 运行；账号与令牌只从 EnvironmentFile 读取，不进镜像与仓库
+User=qclawproxy
+Group=qclawproxy
+WorkingDirectory=/opt/qclaw-pool-proxy
+EnvironmentFile=/etc/qclaw-pool-proxy/env
+ExecStart=/usr/bin/node src/server.mjs --config /etc/qclaw-pool-proxy/config.json
+Restart=always
+RestartSec=3
+
+# 1c1g 下的资源护栏
+MemoryMax=220M
+TasksMax=96
+LimitNOFILE=4096
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/qclaw-pool-proxy
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

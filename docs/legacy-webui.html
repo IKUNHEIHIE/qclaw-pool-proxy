@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QClaw 号池代理</title>
+<style>
+  :root{--bg:#0e1116;--panel:#161b22;--panel2:#0d1117;--line:#232a33;--tx:#d7dee8;--dim:#8b949e;
+        --ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff;--acc2:#1f6feb}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  header{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--line);
+         background:var(--panel);flex-wrap:wrap;position:sticky;top:0;z-index:20}
+  h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.02em}
+  h1 .v{color:var(--dim);font-weight:400;font-size:12px;margin-left:6px}
+  h2{font-size:12px;margin:0 0 10px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.07em}
+  h3{font-size:13px;margin:14px 0 6px;color:var(--dim);font-weight:600}
+  main{padding:18px 20px 60px;max-width:1280px;margin:0 auto;display:grid;gap:16px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input,select,textarea,button{font:inherit;background:var(--panel2);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--acc)}
+  textarea{width:100%;min-height:64px;resize:vertical}
+  button{cursor:pointer;background:#21262d;border-color:#30363d}
+  button:hover{border-color:var(--acc)}
+  button.primary{background:var(--acc2);border-color:var(--acc2)}
+  button.danger{color:var(--bad)}
+  button.sm{padding:2px 8px;font-size:12px}
+  button[disabled]{opacity:.45;cursor:not-allowed}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:500;white-space:nowrap}
+  tbody tr:hover{background:#1c2129}
+  .pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid;white-space:nowrap}
+  .p-ok{color:var(--ok);border-color:#19442b}.p-bad{color:var(--bad);border-color:#4d1f1f}
+  .p-warn{color:var(--warn);border-color:#4d3800}.p-dim{color:var(--dim);border-color:var(--line)}
+  .p-acc{color:var(--acc);border-color:#1f3b57}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .dim{color:var(--dim)}
+  .num{font-variant-numeric:tabular-nums}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .card b{display:block;font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
+  .card span{font-size:12px;color:var(--dim)}
+  .banner{border-radius:8px;padding:9px 12px;font-size:13px;display:flex;gap:8px;align-items:center;border:1px solid}
+  .b-warn{background:#4d380022;border-color:#4d3800;color:#e8c46a}
+  .b-bad{background:#4d1f1f22;border-color:#4d1f1f;color:#f2a9a4}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:11px;overflow:auto;
+      max-height:300px;white-space:pre-wrap;word-break:break-word;margin:0;font-size:12px}
+  details summary{cursor:pointer;color:var(--dim);margin-bottom:6px}
+  .grow{flex:1;min-width:0}
+  .hide{display:none!important}
+  #login{max-width:430px;margin:12vh auto;text-align:center}
+  nav{display:flex;gap:3px;flex-wrap:wrap}
+  nav button{background:transparent;border:1px solid transparent;border-radius:6px;padding:5px 12px;color:var(--dim)}
+  nav button.on{background:#1f6feb22;border-color:#1f6feb55;color:var(--tx)}
+  #chat{display:flex;flex-direction:column;gap:12px;min-height:44vh;max-height:62vh;overflow:auto;padding-right:4px}
+  .msg{display:flex;gap:10px;align-items:flex-start}
+  .msg .who{flex:0 0 auto;width:48px;text-align:center;font-size:12px;color:var(--dim);padding-top:8px}
+  .bub{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;
+       white-space:pre-wrap;word-break:break-word;flex:1;min-width:0}
+  .msg.u .bub{background:#1f6feb1a;border-color:#1f6feb44}
+  .meta{font-size:12px;color:var(--dim);margin-top:6px}
+  .cursor::after{content:'▋';color:var(--acc);animation:bl 1s steps(2) infinite}
+  @keyframes bl{to{opacity:0}}
+  details.reason{margin-top:6px;font-size:12px;color:var(--dim)}
+  details.reason summary{margin-bottom:4px}
+  #qrbox{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  #qrbox img{background:#fff;border-radius:8px;padding:6px;width:220px;height:220px;object-fit:contain}
+  /* 弹层 */
+  #modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:40;padding:16px}
+  #modal .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:560px;width:100%;
+              max-height:88vh;overflow:auto;padding:18px}
+  .field{display:grid;grid-template-columns:112px 1fr;gap:10px;align-items:center;margin-bottom:9px}
+  .field>label{color:var(--dim);font-size:13px}
+  .field input,.field select{width:100%}
+  .chk{display:flex;flex-wrap:wrap;gap:4px 12px;max-height:130px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:7px}
+  .chk label{font-size:12px;display:flex;gap:5px;align-items:center}
+  .chk input{width:auto}
+  #toast{position:fixed;right:18px;bottom:18px;z-index:60;display:grid;gap:8px}
+  .tip{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:6px;
+       padding:9px 13px;font-size:13px;box-shadow:0 6px 24px #0007;max-width:420px}
+  .tip.bad{border-left-color:var(--bad)}.tip.ok{border-left-color:var(--ok)}
+  .bar{height:4px;background:#20262e;border-radius:2px;overflow:hidden;margin-top:4px;width:110px}
+  .bar i{display:block;height:100%;background:var(--acc2)}
+</style>
+</head>
+<body>
+<header id="bar" class="hide">
+  <h1>QClaw 号池代理<span class="v" id="ver"></span></h1>
+  <nav id="nav">
+    <button data-v="overview" class="on">概览</button>
+    <button data-v="keys">密钥</button>
+    <button data-v="pool">号池</button>
+    <button data-v="chat">对话</button>
+    <button data-v="log">日志</button>
+    <button data-v="api">接入</button>
+  </nav>
+  <span class="grow"></span>
+  <span id="uptime" class="dim mono"></span>
+  <label class="dim" style="display:flex;gap:4px;align-items:center;font-size:12px">
+    <input type="checkbox" id="autoRef" style="width:auto">自动刷新</label>
+  <button id="btnRefresh">刷新</button>
+  <button id="btnLogout">退出</button>
+</header>
+
+<section id="login">
+  <h2>管理令牌</h2>
+  <div class="row"><input id="tok" type="password" placeholder="PROXY_ADMIN_TOKEN" class="grow"><button id="btnLogin" class="primary">进入</button></div>
+  <p class="dim" style="margin-bottom:0">令牌即服务端 <span class="mono">PROXY_ADMIN_TOKEN</span>，只保存在本机浏览器 localStorage。</p>
+</section>
+
+<main id="app" class="hide">
+
+  <!-- ========== 概览 ========== -->
+  <div class="view" data-v="overview" style="display:grid;gap:16px">
+    <div id="banners" style="display:grid;gap:8px"></div>
+    <section><h2>运行状况</h2><div class="cards" id="cards"></div></section>
+    <section><h2>号池健康</h2><table><thead><tr><th>账号</th><th>状态</th><th>今日请求</th><th>成功率</th><th>延迟</th><th>登录态剩余</th></tr></thead><tbody id="ovAccts"></tbody></table></section>
+    <section><h2>密钥用量 Top</h2><table><thead><tr><th>名称</th><th>请求</th><th>今日</th><th>失败</th><th>token（估）</th><th>最近使用</th></tr></thead><tbody id="ovKeys"></tbody></table></section>
+  </div>
+
+  <!-- ========== 密钥 ========== -->
+  <div class="view hide" data-v="keys" style="display:grid;gap:16px">
+    <section>
+      <div class="row" style="margin-bottom:10px">
+        <h2 class="grow" style="margin:0">对外 API 密钥</h2>
+        <button id="btnShowKeys" title="明文只在浏览器里渲染，不额外请求服务端">显示明文</button>
+        <button id="btnNewKey" class="primary">新建密钥</button>
+      </div>
+      <table><thead><tr><th>名称</th><th>密钥</th><th>限额</th><th>可用模型</th><th>用量</th><th>状态</th><th></th></tr></thead>
+      <tbody id="keyRows"></tbody></table>
+      <p class="dim" style="margin-bottom:0">限额在网关侧强制执行：超出返回 <span class="mono">429</span>、白名单外模型返回 <span class="mono">403</span>、停用/过期返回 <span class="mono">401/403</span>。
+      用量随请求累加并定期写回 <span class="mono">config.json</span>。</p>
+    </section>
+  </div>
+
+  <!-- ========== 号池 ========== -->
+  <div class="view hide" data-v="pool" style="display:grid;gap:16px">
+    <section>
+      <div class="row" style="margin-bottom:8px">
+        <h2 class="grow" style="margin:0">账号池</h2>
+        <button id="btnCatalog">重载全部目录</button>
+      </div>
+      <table><thead><tr><th>账号</th><th>类型 / 地址</th><th>状态</th><th>请求 / 成功 / 失败</th><th>延迟</th><th>模型</th><th>积分余额</th><th>今日 token</th><th>试用/购买</th><th>登录态</th><th></th></tr></thead>
+      <tbody id="accts"></tbody></table>
+      <p class="dim" style="margin-bottom:0">登录态取自 JWT 的 <span class="mono">exp</span>；到点会由服务端 21004 触发冷却换号，需重新登录或换号补池。</p>
+    </section>
+
+    <section>
+      <h2>扫码登录新账号 <span class="pill p-ok">可直接入池</span></h2>
+      <div id="qrbox">
+        <div id="qrWrap" class="hide"><img id="qrImg" alt="登录二维码"><div class="dim mono" id="qrState" style="margin-top:6px"></div></div>
+        <div class="grow">
+          <div class="row"><button id="btnLoginStart" class="primary">生成登录二维码</button><button id="btnLoginCancel" class="danger hide">取消</button><span id="loginInfo" class="dim mono"></span></div>
+          <p class="dim">点一下出微信二维码，<b>让对方用微信扫一扫并确认</b> —— 服务端会自己走完官网那条扫码登录通道：
+          先向 <span class="mono">4050</span> 领一个绑定本设备的 <span class="mono">state</span>，扫码回调拿到授权码后
+          带 HMAC 签名打 <span class="mono">4026</span> 换出 QClaw 登录 JWT，再取 sk- 与模型清单<em>自动入池</em>，
+          全程不需要对方装任何东西。<br>
+          之前判定"扫码不可行"是误判：缺签名时 <span class="mono">4026</span> 回的是
+          <span class="mono">21004 鉴权不通过，请升级最新版本</span>，看着像接口下线，其实是签名没过。
+          同一微信号重复扫会按 unionid 认出来就地更新，不会堆成两条。<br>
+          二维码 5 分钟过期；失败原因（含每一次兑换的服务端返回）都展开在下面，并落盘到
+          <span class="mono">login-trail.log</span>。老的「从其他机器补号」仍然可用，两条路互补。</p>
+          <pre id="loginLog" class="hide" style="max-height:200px"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>从其他机器补号</h2>
+      <p class="dim">在任意一台<em>已登录 QClaw</em> 的机器上执行下面这条命令，账号会直接推进本号池，不必手改 config.json：</p>
+      <div class="row"><pre id="pushCmd" class="grow" style="flex:1;min-width:420px;max-height:none"></pre>
+        <button id="btnCopyPush">复制命令</button></div>
+      <details style="margin-top:10px"><summary>或者把 bootstrap 打印的 JSON 粘进来批量导入</summary>
+        <textarea id="impJson" class="mono" placeholder='支持三种形态：单个账号对象、账号数组、或 {"accounts":[...]}' style="margin-top:8px"></textarea>
+        <div class="row" style="margin-top:8px"><button id="btnImport" class="primary">导入</button><span id="impInfo" class="dim mono"></span></div>
+        <pre id="impOut" class="hide" style="margin-top:8px"></pre>
+      </details>
+    </section>
+
+    <section>
+      <details><summary>手动添加 / 更新账号（粘贴 JWT 或直连凭据）</summary>
+      <div class="row">
+        <input id="nId" placeholder="id（如 qclaw-a）"><input id="nBase" placeholder="base（留空用直连默认）">
+        <input id="nToken" type="password" placeholder="token 或 apiKey" class="grow">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <select id="nType"><option value="qclaw-aizone">qclaw-aizone（免签直连，推荐）</option><option value="openclaw-gateway">openclaw-gateway</option><option value="openai-compat">openai-compat</option></select>
+        <input id="nAgent" placeholder="defaultAgent（默认 main）" style="width:190px">
+        <input id="nWeight" placeholder="weight" style="width:90px">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="nGuid" placeholder="guid（qclaw-aizone 必填，64 位 hex）" class="grow">
+        <input id="nAcct" placeholder="account / user_id" style="width:160px">
+        <input id="nJwt" type="password" placeholder="jwt（X-OpenClaw-Token 登录态）" class="grow">
+      </div>
+      <div class="row" style="margin-top:10px"><button id="btnAdd" class="primary">保存</button><span id="addInfo" class="dim mono"></span></div>
+      </details>
+    </section>
+  </div>
+
+  <!-- ========== 对话 ========== -->
+  <div class="view hide" data-v="chat" style="display:grid;gap:16px">
+    <section>
+      <div class="row">
+        <select id="cModel" class="grow" title="模型"></select>
+        <select id="cAcct" title="指定账号（默认自动选号）"><option value="">自动选号</option></select>
+        <select id="cKey" title="用哪把客户端密钥调用（与外部客户端完全同链路）"></select>
+        <input id="cMax" type="number" value="4096" style="width:92px" title="max_tokens">
+        <input id="cTemp" type="number" step="0.1" placeholder="temp" style="width:78px" title="temperature">
+        <label class="dim" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="cStream" checked style="width:auto">流式</label>
+        <button id="cSys" title="系统提示词">System</button>
+        <button id="cNew">新对话</button>
+      </div>
+      <div id="sysWrap" class="hide" style="margin-top:8px"><textarea id="cSysTxt" placeholder="系统提示词（可选）" style="min-height:48px"></textarea></div>
+      <div id="chat" style="margin-top:14px"></div>
+      <div class="row" style="margin-top:12px;align-items:flex-end">
+        <textarea id="cInput" placeholder="输入消息，Enter 发送 / Shift+Enter 换行" class="grow" style="min-height:56px"></textarea>
+        <button id="cSend" class="primary">发送</button>
+        <button id="cStop" class="danger hide">停止</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========== 日志 ========== -->
+  <div class="view hide" data-v="log" style="display:grid;gap:16px">
+    <section>
+      <div class="row" style="margin-bottom:8px">
+        <h2 class="grow" style="margin:0">请求日志</h2>
+        <select id="logFilter"><option value="">全部</option><option value="err">只看失败</option><option value="429">429 限流</option><option value="401">401/403 鉴权</option></select>
+        <span class="dim mono" id="logTotals"></span>
+      </div>
+      <table><thead><tr><th>时间</th><th>密钥</th><th>模型</th><th>服务账号</th><th>状态</th><th>耗时</th><th>token（估）</th><th>流式</th><th>错误</th></tr></thead>
+      <tbody id="logRows"></tbody></table>
+      <p class="dim" style="margin-bottom:0">内存环形缓冲（最近 500 条），重启清零；密钥累计用量会写进 config.json，不受重启影响。</p>
+    </section>
+  </div>
+
+  <!-- ========== 接入 ========== -->
+  <div class="view hide" data-v="api" style="display:grid;gap:16px">
+    <section>
+      <div class="row" style="margin-bottom:8px"><h2 class="grow" style="margin:0">接入方式</h2>
+        <select id="apiKey" class="mono" style="max-width:280px"></select></div>
+      <div class="row"><h3 class="grow" style="margin:0">OpenAI 兼容（Chat Completions）</h3><button class="sm" data-snip="snipOpenai">复制</button></div><pre id="snipOpenai"></pre>
+      <div class="row"><h3 class="grow" style="margin:0">OpenAI Responses（ChatGPT / Codex 系客户端）</h3><button class="sm" data-snip="snipResp">复制</button></div><pre id="snipResp"></pre>
+      <div class="row"><h3 class="grow" style="margin:0">Anthropic 兼容（Messages）</h3><button class="sm" data-snip="snipAnth">复制</button></div><pre id="snipAnth"></pre>
+      <h3>流式</h3><pre id="snipStream"></pre>
+      <div class="row"><h3 class="grow" style="margin:0">可选项</h3><button class="sm" data-snip="snipOpts">复制</button></div><pre id="snipOpts"></pre>
+      <div class="row"><h3 class="grow" style="margin:0">工具调用与思考深度</h3><button class="sm" data-snip="snipTools">复制</button></div><pre id="snipTools"></pre>
+    </section>
+    <section><h2>模型清单 <span class="dim" id="mcount"></span></h2>
+      <table><thead><tr><th>model</th><th>名称</th><th>说明</th><th>context</th><th>能力</th><th>积分倍率</th><th>可服务账号</th></tr></thead><tbody id="models"></tbody></table></section>
+  </div>
+</main>
+
+<div id="modal" class="hide">
+  <div class="box">
+    <h2 id="mTitle">新建密钥</h2>
+    <div class="field"><label for="fName">名称</label><input id="fName" placeholder="如 web-prod / 小吴"></div>
+    <div class="field"><label for="fNote">备注</label><input id="fNote" placeholder="可选"></div>
+    <div class="field"><label for="fRpm">速率限制</label><input id="fRpm" type="number" min="0" placeholder="0 = 不限（次/分钟）"></div>
+    <div class="field"><label for="fDaily">日配额</label><input id="fDaily" type="number" min="0" placeholder="0 = 不限（次/天，UTC 日切）"></div>
+    <div class="field"><label for="fMaxTok">max_tokens 上限</label><input id="fMaxTok" type="number" min="0" placeholder="0 = 不限（防推理模型吃满额度）"></div>
+    <div class="field"><label for="fExp">有效期</label><input id="fExp" type="number" min="0" placeholder="0 = 永久（单位：天）"></div>
+    <div class="field" style="align-items:start"><label for="fModels">可用模型</label>
+      <div><div class="chk" id="fModels" role="group" aria-label="可用模型白名单"></div><span class="dim" style="font-size:12px">全不勾 = 不限制；也可在配置里手写 <span class="mono">"*"</span> 表示全部</span></div></div>
+    <div class="row" style="margin-top:12px"><button id="mSave" class="primary">创建</button><button id="mCancel">取消</button>
+      <span class="dim mono" id="mInfo"></span></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+let T = localStorage.getItem('qpp.admin') || '';
+let CK = localStorage.getItem('qpp.ckey') || '';
+let STATE = null, KEYS = [], abort = null, timer = null, loginTimer = null, loginId = null;
+let showKeys = localStorage.getItem('qpp.showKeys') === '1';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = n => (n ?? 0).toLocaleString();
+const fmtMs = ms => ms == null ? '—' : ms > 9999 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms';
+const ago = t => !t ? '—' : (() => { const s = (Date.now() - new Date(t)) / 1000;
+  return s < 60 ? Math.round(s) + 's 前' : s < 3600 ? Math.round(s / 60) + 'm 前' : s < 86400 ? Math.round(s / 3600) + 'h 前' : new Date(t).toLocaleDateString(); })();
+
+async function api(path, opt = {}) {
+  const r = await fetch(path, { ...opt, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + T, ...(opt.headers || {}) } });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  if (!r.ok) throw new Error(data?.error?.message || data?.message || text.slice(0, 200) || ('HTTP ' + r.status));
+  return data;
+}
+
+function tip(msg, kind = '') {
+  const d = document.createElement('div');
+  d.className = 'tip ' + kind; d.textContent = msg;
+  $('#toast').appendChild(d);
+  setTimeout(() => d.remove(), kind === 'bad' ? 6000 : 2600);
+}
+
+/**
+ * 复制。navigator.clipboard 只在安全上下文（https 或 localhost）里存在，
+ * 而这个控制台最常见的用法就是 http://<服务器IP>:8787 —— 那里它根本是 undefined，
+ * 所以必须有 execCommand 兜底，并且兜底也不保证成功（要选中、要用户手势）。
+ */
+async function copy(text) {
+  const s = String(text ?? '');
+  if (!s) return tip('没有可复制的内容', 'bad');
+  try {
+    if (window.isSecureContext && navigator.clipboard) {
+      await navigator.clipboard.writeText(s);
+      tip('已复制', 'ok');
+      return;
+    }
+  } catch { /* 落到兜底路径 */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = s;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, s.length);
+    const okExec = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (okExec) { tip('已复制', 'ok'); return; }
+    throw new Error('execCommand 返回 false');
+  } catch (e) {
+    // 兜底也失败时不再只说"请手动选中"：把内容直接摊在一个可全选弹层里
+    showCopyFallback(s);
+  }
+}
+
+function showCopyFallback(text) {
+  let box = document.getElementById('copyBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'copyBox';
+    box.style.cssText = 'position:fixed;inset:0;background:#000a;z-index:80;display:flex;align-items:center;justify-content:center;padding:16px';
+    box.innerHTML = '<div class="box" style="background:var(--panel);border:1px solid var(--line);border-radius:10px;max-width:640px;width:100%;padding:16px">'
+      + '<h2 style="margin:0 0 8px">浏览器不允许网页写剪贴板</h2>'
+      + '<p class="dim" style="margin:0 0 8px">非 HTTPS 环境下这是浏览器的硬限制。内容已全选在下面框里，按 Ctrl/Cmd+C 即可。</p>'
+      + '<textarea id="copyText" class="mono" style="min-height:120px;width:100%"></textarea>'
+      + '<div class="row" style="margin-top:10px"><button class="primary" id="copyDone">完成</button>'
+      + '<span class="dim">建议：给这个控制台套一层 HTTPS 或用 ssh -L 走 localhost</span></div></div>';
+    document.body.appendChild(box);
+    box.querySelector('#copyDone').onclick = () => box.classList.add('hide');
+  }
+  box.classList.remove('hide');
+  const ta = box.querySelector('#copyText');
+  ta.value = text; ta.focus(); ta.select();
+  tip('剪贴板被浏览器拒绝，已改为可全选弹层', 'bad');
+}
+
+/* ---------------- 视图切换 ---------------- */
+$$('#nav button').forEach(b => b.onclick = () => {
+  $$('#nav button').forEach(x => x.classList.toggle('on', x === b));
+  $$('.view').forEach(v => v.classList.toggle('hide', v.dataset.v !== b.dataset.v));
+  localStorage.setItem('qpp.view', b.dataset.v);
+  if (b.dataset.v === 'chat') $('#chat').scrollTop = $('#chat').scrollHeight;
+  if (b.dataset.v === 'log') loadLog();
+});
+
+/* ---------------- 概览 ---------------- */
+function renderOverview(s) {
+  const healthy = s.accounts.filter(a => a.ok && a.enabled);
+  const k = s.keys || {};
+  $('#cards').innerHTML = [
+    ['在线账号', healthy.length + ' / ' + s.accounts.length, healthy.length ? 'ok' : 'bad'],
+    ['对外模型', s.models.length, ''],
+    ['有效密钥', (k.active ?? 0) + ' / ' + (k.total ?? 0), k.active ? '' : 'warn'],
+    ['今日请求', num(k.todayRequests), ''],
+    ['累计请求', num(k.requests), ''],
+    ['失败率', ((k.errorRate || 0) * 100).toFixed(2) + '%', k.errorRate > 0.05 ? 'warn' : ''],
+    ['换号重试', num(s.stats.retries), ''],
+    ['运行时长', Math.round(s.uptimeMs / 1000) + 's', '']
+  ].map(([t, v]) => `<div class="card"><b>${esc(String(v))}</b><span>${esc(t)}</span></div>`).join('');
+
+  const warn = [];
+  if (k.total === 0) warn.push(['bad', '还没有任何对外密钥：/v1/* 一律返回 503 拒绝所有调用（这是防误配的默认拒绝，不是开放模式）。到「密钥」页签发第一把即恢复。']);
+  if (!healthy.length) warn.push(['bad', '号池里没有健康账号，所有请求都会失败。']);
+  const soon = s.accounts.filter(a => a.jwtExp && a.jwtExp.daysLeft < 7);
+  if (soon.length) warn.push(['warn', `${soon.length} 个账号的登录态 7 天内到期：${soon.map(a => a.id + '(' + a.jwtExp.daysLeft + 'd)').join('、')}。到期后需在那台机器重新登录再推送。`]);
+  const off = s.accounts.filter(a => a.enabled === false);
+  if (off.length) warn.push(['warn', `${off.length} 个账号已被停用（${off.map(a => a.id).join('、')}）：不会再接到任何请求，要恢复在「号池」页点「启用」。`]);
+  const cool = s.accounts.filter(a => a.cooldownSecondsLeft > 0);
+  if (cool.length) warn.push(['warn', `${cool.length} 个账号正在冷却（${cool.map(a => a.id + ' ' + a.cooldownSecondsLeft + 's').join('、')}）。`]);
+  $('#banners').innerHTML = warn.map(([k2, t]) => `<div class="banner b-${k2}">${esc(t)}</div>`).join('');
+
+  $('#ovAccts').innerHTML = s.accounts.map(a => {
+    const tot = a.requests || 0;
+    return `<tr><td><b>${esc(a.id)}</b></td>
+      <td>${!a.enabled ? '<span class="pill p-warn">停用</span>' : a.cooldownSecondsLeft > 0 ? `<span class="pill p-warn">冷却 ${a.cooldownSecondsLeft}s</span>`
+        : a.ok ? '<span class="pill p-ok">健康</span>' : '<span class="pill p-bad">异常</span>'}</td>
+      <td class="mono num">${tot}</td>
+      <td class="mono num">${tot ? ((a.successes / tot) * 100).toFixed(1) + '%' : '—'}</td>
+      <td class="mono num">${fmtMs(a.lastLatencyMs)}</td>
+      <td class="mono">${a.jwtExp ? `<span style="color:${a.jwtExp.daysLeft < 7 ? 'var(--warn)' : 'inherit'}">剩 ${a.jwtExp.daysLeft} 天</span>` : '—'}</td></tr>`;
+  }).join('') || '<tr><td class="dim" colspan="6">号池为空</td></tr>';
+
+  $('#ovKeys').innerHTML = KEYS.slice().sort((a, b) => (b.stats.requests || 0) - (a.stats.requests || 0)).slice(0, 8).map(k2 =>
+    `<tr><td>${esc(k2.name)}</td><td class="mono num">${num(k2.stats.requests)}</td><td class="mono num">${num(k2.today)}</td>
+     <td class="mono num" style="color:${k2.stats.failed ? 'var(--bad)' : 'inherit'}">${num(k2.stats.failed)}</td>
+     <td class="mono num">${num((k2.stats.promptTokens || 0) + (k2.stats.completionTokens || 0))}</td>
+     <td class="mono dim">${ago(k2.stats.lastUsedAt)}</td></tr>`).join('')
+    || '<tr><td class="dim" colspan="6">还没有密钥</td></tr>';
+}
+
+/* ---------------- 密钥 ---------------- */
+function limitCell(k) {
+  const bits = [];
+  if (k.rpm) bits.push(k.rpm + '/min');
+  if (k.dailyRequests) bits.push(k.dailyRequests + '/天');
+  if (k.maxTokens) bits.push('≤' + k.maxTokens + ' tok');
+  return bits.length ? `<span class="mono">${bits.join(' · ')}</span>` : '<span class="dim">不限</span>';
+}
+function renderKeys() {
+  $('#keyRows').innerHTML = KEYS.map(k => {
+    const expired = k.expiresAt && new Date(k.expiresAt) < new Date();
+    const state = !k.enabled ? '<span class="pill p-warn">已停用</span>'
+      : expired ? '<span class="pill p-bad">已过期</span>' : '<span class="pill p-ok">生效中</span>';
+    const pct = k.dailyRequests ? Math.min(100, Math.round(k.today / k.dailyRequests * 100)) : null;
+    const used = (k.stats.promptTokens || 0) + (k.stats.completionTokens || 0);
+    return `<tr>
+      <td><b>${esc(k.name)}</b>${k.note ? `<div class="dim">${esc(k.note)}</div>` : ''}
+          <div class="dim mono">${k.createdAt ? new Date(k.createdAt).toLocaleDateString() : ''}</div></td>
+      <td class="mono" style="word-break:break-all">
+        ${k.key === CK ? '<span class="pill p-acc">对话中</span> ' : ''}
+        <span data-kkey="${esc(k.key)}">${showKeys ? esc(k.key) : esc(k.masked)}</span>
+      </td>
+      <td>${limitCell(k)}</td>
+      <td class="mono dim">${k.models && k.models.length ? esc(k.models.join(', ')) : '全部'}</td>
+      <td class="mono num">${num(k.stats.requests)} 次 · ${num(used)} tok
+        ${pct !== null ? `<div class="bar" title="今日 ${k.today}/${k.dailyRequests}"><i style="width:${pct}%"></i></div>` : ''}</td>
+      <td>${state}${k.expiresAt ? `<div class="dim mono">${new Date(k.expiresAt).toLocaleDateString()}</div>` : ''}</td>
+      <td><div class="row" style="gap:5px">
+        <button class="sm" data-k="copy" data-key="${esc(k.key)}">复制</button>
+        <button class="sm" data-k="use" data-key="${esc(k.key)}">用它对话</button>
+        <button class="sm" data-k="edit" data-key="${esc(k.key)}">编辑</button>
+        <button class="sm" data-k="toggle" data-key="${esc(k.key)}" data-on="${k.enabled !== false}">${k.enabled === false ? '启用' : '停用'}</button>
+        <button class="sm" data-k="rotate" data-key="${esc(k.key)}">轮换</button>
+        <button class="sm danger" data-k="del" data-key="${esc(k.key)}">删除</button>
+      </div></td></tr>`;
+  }).join('') || '<tr><td colspan="7" class="dim">还没有密钥，点右上「新建密钥」</td></tr>';
+
+  const opts = KEYS.filter(k => k.enabled !== false).map(k => `<option value="${esc(k.key)}">${esc(k.name)} · ${esc(k.masked)}</option>`).join('');
+  for (const sel of ['#cKey', '#apiKey']) {
+    const cur = $(sel).value;
+    $(sel).innerHTML = opts || '<option value="">（无密钥）</option>';
+    if (KEYS.some(k => k.key === cur)) $(sel).value = cur;
+    else if (KEYS.some(k => k.key === CK)) $(sel).value = CK;
+  }
+}
+
+$('#keyRows').onclick = async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const { k, key, on } = b.dataset;
+  try {
+    if (k === 'copy') return copy(key);
+    if (k === 'use') { CK = key; localStorage.setItem('qpp.ckey', key); renderKeys(); tip('对话面板已改用 ' + key.slice(0, 7) + '…'); return; }
+    if (k === 'edit') { const rec = KEYS.find(x => x.key === key); if (rec) openModal(rec); return; }
+    if (k === 'toggle') await api('/admin/keys/' + encodeURIComponent(key), { method: 'PATCH', body: JSON.stringify({ enabled: on !== 'true' }) });
+    else if (k === 'rotate') { const r = await api('/admin/keys/' + encodeURIComponent(key) + '/rotate', { method: 'POST' });
+      if (CK === key) { CK = r.key; localStorage.setItem('qpp.ckey', r.key); }
+      await copy(r.key); tip('新密钥已复制到剪贴板（旧密钥立即失效）', 'ok'); }
+    else if (k === 'del') { if (!confirm(`删除密钥 ${key.slice(0, 7)}… ？使用它的客户端会立刻 401。`)) return;
+      await api('/admin/keys/' + encodeURIComponent(key), { method: 'DELETE' }); }
+    await render();
+  } catch (err) { tip(err.message, 'bad'); }
+};
+
+/* 密钥弹层：新建与编辑共用（限额建完还能改，不必回去 curl） */
+let editingKey = null;
+function openModal(rec) {
+  editingKey = rec || null;
+  $('#mTitle').textContent = rec ? `编辑密钥 · ${rec.name}` : '新建密钥';
+  $('#mSave').textContent = rec ? '保存' : '创建';
+  $('#fName').value = rec?.name || ''; $('#fNote').value = rec?.note || '';
+  $('#fRpm').value = rec?.rpm || ''; $('#fDaily').value = rec?.dailyRequests || '';
+  $('#fMaxTok').value = rec?.maxTokens || '';
+  $('#fExp').value = rec?.expiresAt
+    ? Math.max(0, Math.ceil((new Date(rec.expiresAt) - Date.now()) / 86400000)) + 'd' : '';
+  $('#mInfo').textContent = rec?.expiresAt ? `当前到期：${new Date(rec.expiresAt).toLocaleString()}` : '';
+  const sel = new Set(rec?.models || []);
+  $('#fModels').innerHTML = (STATE?.models || []).map(m =>
+    `<label><input type="checkbox" value="${esc(m.id)}" ${sel.has(m.id) ? 'checked' : ''}>${esc(m.id.replace(/^qclaw\//, ''))}</label>`).join('')
+    || '<span class="dim">目录为空</span>';
+  $('#modal').classList.remove('hide'); $('#fName').focus();
+}
+$('#btnNewKey').onclick = () => openModal(null);
+$('#btnShowKeys').onclick = () => {
+  showKeys = !showKeys;
+  localStorage.setItem('qpp.showKeys', showKeys ? '1' : '0');
+  $('#btnShowKeys').textContent = showKeys ? '隐藏明文' : '显示明文';
+  renderKeys();
+};
+if (showKeys) $('#btnShowKeys').textContent = '隐藏明文';
+$('#mCancel').onclick = () => $('#modal').classList.add('hide');
+$('#mSave').onclick = async () => {
+  const models = $$('#fModels input:checked').map(i => i.value);
+  const expRaw = String($('#fExp').value).trim();
+  const expiresDays = Number(expRaw.replace(/d$/i, '')) || 0;
+  const body = {
+    name: $('#fName').value.trim(), note: $('#fNote').value.trim(),
+    rpm: Number($('#fRpm').value) || 0, dailyRequests: Number($('#fDaily').value) || 0,
+    maxTokens: Number($('#fMaxTok').value) || 0, expiresDays, models
+  };
+  if (!body.name) return $('#mInfo').textContent = '名称必填';
+  try {
+    if (editingKey) {
+      await api('/admin/keys/' + encodeURIComponent(editingKey.key), { method: 'PATCH', body: JSON.stringify(body) });
+      $('#modal').classList.add('hide');
+      await render(); tip('限额已更新', 'ok');
+      return;
+    }
+    const r = await api('/admin/keys', { method: 'POST', body: JSON.stringify(body) });
+    $('#modal').classList.add('hide');
+    CK = r.key; localStorage.setItem('qpp.ckey', r.key);
+    await render();
+    copy(r.key);
+    tip(`已创建 ${r.name}，密钥已复制到剪贴板`, 'ok');
+  } catch (e) { $('#mInfo').textContent = '失败: ' + e.message; }
+};
+
+/* ---------------- 号池 ---------------- */
+/**
+ * 积分余额（4110）—— 就是 QClaw 客户端右上角那个数，也是"这个号还能不能用"的真口径。
+ * 推理按 4327 的倍率扣积分，所以余额见底才是硬停；此前的 4075 只是当日流量闸口。
+ * items[] 是各笔赠送（活动/订阅/积分包）及其到期日，优先消耗快过期的那笔。
+ */
+function creditsCell(c) {
+  if (!c) return '<span class="dim">未查询</span>';
+  if (c.error) return `<span class="dim" title="${esc(c.error)}">查询失败</span>`;
+  const pt = n => n >= 1000 ? num(Math.round(n)) : String(Math.round((Number(n) || 0) * 100) / 100);
+  const granted = (c.items || []).reduce((s, i) => s + (Number(i.total) || 0), 0);
+  const pct = granted ? Math.min(100, Math.max(0, Math.round((1 - (Number(c.balance) || 0) / granted) * 100))) : 0;
+  const col = pct > 90 ? 'var(--bad)' : pct > 70 ? 'var(--warn)' : 'var(--ok)';
+  const detail = (c.items || []).map(i => `${i.label}：剩 ${i.remain} / 共 ${i.total}${i.expireAt ? '（至 ' + esc(String(i.expireAt).slice(0, 10)) + '）' : ''}`).join('&#10;');
+  return `<span style="white-space:nowrap" title="${detail || '余额 ' + c.balance}">
+      <b>${pt(c.balance)}</b> 分 · 已用 ${pct}%
+      <div class="bar" style="width:96px"><i style="width:${pct}%;background:${col}"></i></div>
+      <div class="dim" style="font-size:11px">活动 ${pt(c.activity)} · 订阅 ${pt(c.subscription)} · 包 ${pt(c.package)}</div>
+    </span>`;
+}
+
+/** 今日 token 与 RPM（4075）：和积分是两回事，它解释的是"有积分却被限流" */
+function tokensCell(t) {
+  if (!t) return '<span class="dim">未查询</span>';
+  if (t.error) return `<span class="dim" title="${esc(t.error)}">查询失败</span>`;
+  if (!t.dailyLimit) return '<span class="dim">无日额度</span>';
+  const k = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'k' : String(n);
+  const pct = Math.min(100, t.usedPct || 0);
+  const col = pct > 90 ? 'var(--bad)' : pct > 70 ? 'var(--warn)' : 'var(--ok)';
+  return `<span title="日额度 ${num(t.dailyLimit)}，RPM 上限 ${t.rpmLimit || '—'}">
+      ${k(t.dailyUsed)} / ${k(t.dailyLimit)}
+      <div class="bar" style="width:96px"><i style="width:${pct}%;background:${col}"></i></div>
+      <div class="dim" style="font-size:11px">RPM ${t.rpmLimit || '—'}</div>
+    </span>`;
+}
+
+function quotaCell(q) {
+  if (!q) return '—';
+  if (q.error) return `<span class="dim" title="${esc(q.error)}">查询失败</span>`;
+  const bits = [];
+  if (q.remaining) bits.push(`剩 ${q.remaining.toLocaleString()}`);
+  if (q.used) bits.push(`用 ${q.used.toLocaleString()}`);
+  if (q.trialExpiresAt) bits.push(`试用至 ${esc(String(q.trialExpiresAt).slice(0, 10))}`);
+  if (q.purchaseExpiresAt) bits.push(`购买至 ${esc(String(q.purchaseExpiresAt).slice(0, 10))}`);
+  return bits.length ? bits.join(' · ') : '<span class="dim">无试用/购买</span>';
+}
+function renderPool(s) {
+  $('#accts').innerHTML = s.accounts.map(a => {
+    const st = !a.enabled ? '<span class="pill p-warn">已停用</span>'
+      : a.cooldownSecondsLeft > 0 ? `<span class="pill p-warn">冷却 ${a.cooldownSecondsLeft}s</span>`
+      : a.ok ? '<span class="pill p-ok">健康</span>' : '<span class="pill p-bad">异常</span>';
+    return `<tr>
+      <td><b>${esc(a.id)}</b><div class="dim mono">${esc(a.secretHint || '')}</div>
+        ${a.identity && a.identity.unionid ? `<div class="dim" title="${esc(a.identity.unionid)}">微信 ${esc(a.identity.nickname || '(无昵称)')} · unionid …${esc(String(a.identity.unionid).slice(-6))}</div>` : ''}
+        ${a.lastError ? `<div class="dim" style="color:var(--bad);max-width:320px">${esc(a.lastError.slice(0, 140))}</div>` : ''}</td>
+      <td class="mono">${esc(a.type)}<div class="dim">${esc(a.base)}</div></td>
+      <td>${st}<div class="dim mono">连败 ${a.failStreak}</div></td>
+      <td class="mono num">${a.requests} / ${a.successes} / ${a.failures}</td>
+      <td class="mono num">${fmtMs(a.lastLatencyMs)}</td>
+      <td class="mono">${a.catalogCount || '—'}</td>
+      <td class="mono">${creditsCell(a.credits)}</td>
+      <td class="mono">${tokensCell(a.tokens)}</td>
+      <td class="mono">${quotaCell(a.quota)}</td>
+      <td class="mono">${a.jwtExp ? `<span style="color:${a.jwtExp.daysLeft < 7 ? 'var(--warn)' : 'inherit'}">至 ${esc(a.jwtExp.at)}（剩 ${a.jwtExp.daysLeft}d）</span>` : '—'}</td>
+      <td><div class="row" style="gap:5px">
+        <button class="sm" data-a="use" data-id="${esc(a.id)}">用它对话</button>
+        <button class="sm" data-a="refresh" data-id="${esc(a.id)}">目录·积分</button>
+        <button class="sm" data-a="toggle" data-id="${esc(a.id)}" data-on="${a.enabled !== false}">${a.enabled === false ? '启用' : '停用'}</button>
+        <button class="sm danger" data-a="del" data-id="${esc(a.id)}">删除</button>
+      </div></td></tr>`;
+  }).join('') || '<tr><td colspan="11" class="dim">号池为空 —— 点下方「生成登录二维码」让对方微信扫码即可自动入池（<em>要用一个还没进过池的微信号</em>，扫已入池的号只会就地更新凭据、不会多个号）；也可以在任意一台<em>已登录 QClaw</em> 的机器上执行 <span class="mono">node src/bootstrap.mjs --push …</span>（下面那条命令可直接复制）。</td></tr>';
+
+  const models = s.models;
+  $('#mcount').textContent = models.length ? `(${models.length})` : '(目录为空，点「重载全部目录」)';
+  $('#models').innerHTML = models.map(m =>
+    `<tr><td class="mono">${esc(m.id)}</td><td>${esc(m.name || '')}</td><td class="dim">${esc((m.description || '').slice(0, 60))}</td>
+     <td class="mono num">${m.contextWindow ? num(m.contextWindow) : '—'}</td>
+     <td>${(m.capabilities || []).map(c => `<span class="pill ${c.includes('深度思考') ? 'p-ok' : 'p-warn'}">${esc(c)}</span>`).join(' ') || '<span class="dim">—</span>'}</td>
+     <td class="mono num" title="${esc(m.creditRate?.note || '未取到计费倍率')}">${m.creditRate ? esc(m.creditRate.multiplier || ('×' + m.creditRate.inputRate)) : '—'}</td>
+     <td class="dim mono">${esc(m.accounts.join(', '))}</td></tr>`
+  ).join('') || '<tr><td colspan="7" class="dim">—</td></tr>';
+
+  const keepM = $('#cModel').value, keepA = $('#cAcct').value;
+  $('#cModel').innerHTML = models.map(m => `<option value="${esc(m.id)}">${esc(m.id)}${m.name && m.name !== m.id ? ' · ' + esc(m.name) : ''}</option>`).join('')
+    || '<option value="qclaw/modelroute">qclaw/modelroute</option>';
+  $('#cAcct').innerHTML = '<option value="">自动选号</option>' + s.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.id)}</option>`).join('');
+  if (keepM) $('#cModel').value = keepM; if (keepA) $('#cAcct').value = keepA;
+
+  $('#pushCmd').textContent = `node src/bootstrap.mjs --id <这台机器名> --push ${location.origin} --admin-token ${T}`;
+}
+
+$('#accts').onclick = async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const { a, id } = b.dataset;
+  try {
+    if (a === 'del') { if (!confirm(`删除账号 ${id}？`)) return; await api('/admin/accounts/' + encodeURIComponent(id), { method: 'DELETE' }); }
+    else if (a === 'refresh') { const r = await api(`/admin/accounts/${encodeURIComponent(id)}/refresh`, { method: 'POST' }); tip(`${id} 目录 ${r.models.length} 个模型`, 'ok'); }
+    else if (a === 'toggle') {
+      const on = b.dataset.on === 'true';
+      await api(`/admin/accounts/${encodeURIComponent(id)}/${on ? 'disable' : 'enable'}`, { method: 'POST' });
+      tip(on ? `已停用 ${id}：号池不再把它派给任何请求` : `已启用 ${id}（冷却状态已一并清除）`, 'ok');
+    }
+    else if (a === 'use') { $$('#nav button').find(x => x.dataset.v === 'chat').click(); $('#cAcct').value = id; return; }
+    render();
+  } catch (err) { tip(err.message, 'bad'); }
+};
+$('#btnCatalog').onclick = async () => { try { await api('/admin/catalog/refresh', { method: 'POST' }); await render(); tip('目录已重载', 'ok'); } catch (e) { tip('重载失败: ' + e.message, 'bad'); } };
+
+$('#btnAdd').onclick = async () => {
+  const type = $('#nType').value;
+  const a = {
+    id: $('#nId').value.trim(), type,
+    base: $('#nBase').value.trim() || (type === 'qclaw-aizone' ? 'https://mmgrcalltoken.3g.qq.com/aizone/v1/' : ''),
+    defaultAgent: $('#nAgent').value.trim() || 'main', weight: Number($('#nWeight').value) || 100
+  };
+  a[type === 'openclaw-gateway' ? 'token' : 'apiKey'] = $('#nToken').value.trim();
+  if (type === 'qclaw-aizone') {
+    a.jwt = $('#nJwt').value.trim(); a.guid = $('#nGuid').value.trim(); a.account = $('#nAcct').value.trim();
+    if (!a.jwt || !a.guid) return $('#addInfo').textContent = 'qclaw-aizone 需要 jwt 与 guid';
+  }
+  if (!a.id || !a.base) return $('#addInfo').textContent = 'id 和 base 必填';
+  try { await api('/admin/accounts/upsert', { method: 'POST', body: JSON.stringify(a) }); $('#addInfo').textContent = '已保存'; render(); }
+  catch (e) { $('#addInfo').textContent = '失败: ' + e.message; }
+};
+
+$('#btnCopyPush').onclick = () => copy($('#pushCmd').textContent);
+
+$('#btnImport').onclick = async () => {
+  const out = $('#impOut'); const info = $('#impInfo');
+  let parsed;
+  try { parsed = JSON.parse($('#impJson').value); }
+  catch (e) { info.textContent = '不是合法 JSON: ' + e.message; return; }
+  const list = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.accounts) ? parsed.accounts : [parsed]);
+  const bad = list.findIndex(a => !a || !a.id || !a.type);
+  if (bad >= 0) { info.textContent = `第 ${bad + 1} 条缺少 id 或 type`; return; }
+  out.classList.remove('hide'); out.textContent = ''; info.textContent = `导入中 0/${list.length}`;
+  const lines = []; let ok = 0;
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    try { await api('/admin/accounts/upsert', { method: 'POST', body: JSON.stringify(a) }); ok++; lines.push(`✓ ${a.id} (${a.type})`); }
+    catch (e) { lines.push(`✗ ${a.id}: ${e.message}`); }
+    info.textContent = `导入中 ${i + 1}/${list.length}`; out.textContent = lines.join('\n');
+  }
+  info.textContent = `完成：${ok}/${list.length} 已入池`;
+  out.textContent = lines.join('\n'); render();
+};
+
+/* ---------------- 对话 ---------------- */
+let HIST = JSON.parse(localStorage.getItem('qpp.hist') || '[]');
+let SYS = localStorage.getItem('qpp.sys') || '';
+
+function renderChat() {
+  const box = $('#chat');
+  if (!HIST.length) { box.innerHTML = '<p class="dim">还没有对话。这里用的是<strong>真实对外链路</strong>：带客户端密钥打 /v1/chat/completions，和外部客户端一模一样。</p>'; return; }
+  box.innerHTML = HIST.map((m, i) => `
+    <div class="msg ${m.role === 'user' ? 'u' : 'a'}">
+      <div class="who">${m.role === 'user' ? '你' : '模型'}</div>
+      <div class="bub">${esc(m.content)}${m.pending ? '<span class="cursor"></span>' : ''}
+        ${m.reasoning ? `<details class="reason"><summary>思考过程 (${m.reasoning.length} 字)</summary>${esc(m.reasoning)}</details>` : ''}
+        ${m.meta ? `<div class="meta">${esc(m.meta)}</div>` : ''}
+        ${m.role === 'assistant' && !m.pending ? `<div class="meta"><button data-edit="${i}" class="sm" style="background:none;border:none;padding:0">重新提问上一条</button>
+          <button data-curl="${i}" class="sm" style="background:none;border:none;padding:0;margin-left:10px">复制为 curl</button></div>` : ''}
+      </div>
+    </div>`).join('');
+  box.scrollTop = box.scrollHeight;
+}
+$('#chat').onclick = e => {
+  const ed = e.target.closest('button[data-edit]');
+  if (ed) {
+    const i = Number(ed.dataset.edit);
+    let u = i - 1; while (u >= 0 && HIST[u].role !== 'user') u--;
+    if (u < 0) return;
+    $('#cInput').value = HIST[u].content; HIST = HIST.slice(0, u);
+    save(); renderChat(); $('#cInput').focus(); return;
+  }
+  const cu = e.target.closest('button[data-curl]');
+  if (cu) {
+    const i = Number(cu.dataset.curl);
+    let u = i - 1; while (u >= 0 && HIST[u].role !== 'user') u--;
+    if (u < 0) return;
+    copy(curlSnippet([{ role: 'user', content: HIST[u].content }], $('#cModel').value));
+  }
+};
+function save() { localStorage.setItem('qpp.hist', JSON.stringify(HIST.filter(m => !m.pending))); }
+
+function curlSnippet(messages, model, stream = false) {
+  const body = JSON.stringify({ model, messages, max_tokens: Number($('#cMax').value) || 1024, stream });
+  return `curl ${location.origin}/v1/chat/completions \\\n  -H "Authorization: Bearer ${CK || '<你的密钥>'}" -H "content-type: application/json" \\\n  -d '${body.replace(/'/g, "'\\''")}'`;
+}
+
+async function send() {
+  const text = $('#cInput').value.trim();
+  if (!text || abort) return;
+  if (!CK) return tip('还没有可用的客户端密钥，先到「密钥」页创建', 'bad');
+  const model = $('#cModel').value;
+  const maxTok = Number($('#cMax').value) || 1024;
+  const stream = $('#cStream').checked;
+  const sys = $('#cSysTxt').value.trim();
+  HIST.push({ role: 'user', content: text });
+  const asst = { role: 'assistant', content: '', reasoning: '', pending: true, meta: '生成中…' };
+  HIST.push(asst);
+  $('#cInput').value = ''; save(); renderChat();
+
+  const messages = (sys ? [{ role: 'system', content: sys }] : [])
+    .concat(HIST.filter(m => !m.pending).map(({ role, content }) => ({ role, content })));
+  const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + (CK || T) };
+  if ($('#cAcct').value) headers['x-qclaw-account'] = $('#cAcct').value;
+  headers['x-qclaw-session'] = localStorage.getItem('qpp.session') || (() => {
+    const s = 'web-' + Math.random().toString(36).slice(2, 12); localStorage.setItem('qpp.session', s); return s;
+  })();
+  const body = { model, messages, max_tokens: maxTok, stream };
+  const temp = $('#cTemp').value;
+  if (temp !== '') body.temperature = Number(temp);
+
+  const t0 = Date.now();
+  let finish = null, usage = null, acct = '';
+  abort = new AbortController();
+  $('#cStop').classList.remove('hide'); $('#cSend').disabled = true;
+  try {
+    const res = await fetch('/v1/chat/completions', { method: 'POST', headers, signal: abort.signal, body: JSON.stringify(body) });
+    acct = res.headers.get('x-qclaw-account') || '';
+    if (!res.ok) throw new Error((await res.text()).slice(0, 300));
+    if (stream) {
+      const rd = res.body.getReader(); let buf = '';
+      for (;;) {
+        const { value, done } = await rd.read();
+        if (done) break;
+        buf += new TextDecoder().decode(value);
+        const lines = buf.split('\n'); buf = lines.pop();
+        for (const ln of lines) {
+          if (!ln.startsWith('data:')) continue;
+          const p = ln.slice(5).trim();
+          if (p === '[DONE]') continue;
+          let j; try { j = JSON.parse(p); } catch { continue; }
+          const c = j.choices?.[0];
+          if (c?.finish_reason) finish = c.finish_reason;
+          if (c?.delta?.content) asst.content += c.delta.content;
+          if (c?.delta?.reasoning_content) asst.reasoning += c.delta.reasoning_content;
+          if (j.usage) usage = j.usage;
+        }
+        paint(asst, t0);
+      }
+    } else {
+      const j = await res.json();
+      const c = j.choices?.[0];
+      finish = c?.finish_reason; usage = j.usage;
+      asst.content = c?.message?.content || '';
+      asst.reasoning = c?.message?.reasoning_content || '';
+    }
+    asst.pending = false;
+    const tok = usage ? `${usage.prompt_tokens || 0}+${usage.completion_tokens || 0} tok`
+      : `≈${Math.round((asst.content.length + text.length) / 3)} tok(估)`;
+    asst.meta = `${((Date.now() - t0) / 1000).toFixed(1)}s · ${asst.content.length} 字 · ${tok}`
+      + (asst.reasoning.length ? ` · 思考 ${asst.reasoning.length} 字` : '')
+      + (acct ? ` · ${acct}` : '') + (finish ? ` · ${finish}` : '');
+    // pool-* 多是推理模型：预算被思考吃光时正文会是空串，必须说清楚而不是显示空气泡
+    if (!asst.content && asst.reasoning) asst.meta += ' —— 思考占满了 max_tokens，正文为空；把上方预算调大再问';
+    else if (!asst.content) asst.meta += ' —— 上游没返回正文';
+  } catch (e) {
+    asst.pending = false;
+    asst.meta = String(e.name === 'AbortError' ? '已停止' : '失败: ' + e.message);
+  } finally {
+    abort = null; $('#cStop').classList.add('hide'); $('#cSend').disabled = false;
+    save(); renderChat(); loadLog();
+  }
+}
+function paint(asst, t0) {
+  asst.meta = `${((Date.now() - t0) / 1000).toFixed(1)}s · ${asst.content.length} 字（流式中）`;
+  renderChat();
+}
+$('#cSend').onclick = send;
+$('#cStop').onclick = () => abort?.abort();
+$('#cInput').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+$('#cNew').onclick = () => { HIST = []; save(); renderChat(); };
+$('#cSys').onclick = () => { $('#sysWrap').classList.toggle('hide'); $('#cSysTxt').focus(); };
+$('#cSysTxt').oninput = () => { SYS = $('#cSysTxt').value; localStorage.setItem('qpp.sys', SYS); };
+$('#cKey').onchange = () => { CK = $('#cKey').value; localStorage.setItem('qpp.ckey', CK); renderKeys(); renderSnippets(); };
+$('#apiKey').onchange = renderSnippets;
+
+/* ---------------- 日志 ---------------- */
+async function loadLog() {
+  let r; try { r = await api('/admin/log?limit=200'); } catch (e) { return; }
+  const f = $('#logFilter').value;
+  const rows = r.log.filter(x => f === '' ? true : f === 'err' ? !x.ok : f === '429' ? x.status === 429 : x.status === 401 || x.status === 403);
+  $('#logTotals').textContent = `今日 ${num(r.totals.todayRequests)} · 累计 ${num(r.totals.requests)} · 拒绝 ${num(r.totals.denied)} · 失败率 ${((r.totals.errorRate || 0) * 100).toFixed(1)}%`;
+  $('#logRows').innerHTML = rows.map(x => `<tr>
+    <td class="mono dim">${new Date(x.at).toLocaleTimeString()}</td>
+    <td>${esc(x.key)}</td><td class="mono">${esc(x.model)}</td><td class="mono dim">${esc(x.account)}</td>
+    <td><span class="pill ${x.ok ? 'p-ok' : x.status === 429 ? 'p-warn' : 'p-bad'}">${x.status}</span></td>
+    <td class="mono num">${x.ms || ''}</td>
+    <td class="mono num">${(x.promptTokens || x.completionTokens) ? num(x.promptTokens) + '+' + num(x.completionTokens) : '—'}</td>
+    <td class="dim">${x.stream ? 'SSE' : ''}</td>
+    <td class="dim" style="max-width:340px">${esc((x.error || '').slice(0, 120))}</td></tr>`).join('')
+    || '<tr><td colspan="9" class="dim">暂无记录</td></tr>';
+}
+$('#logFilter').onchange = loadLog;
+
+/* ---------------- 扫码登录 ---------------- */
+$('#btnLoginStart').onclick = async () => {
+  clearInterval(loginTimer);
+  $('#loginInfo').textContent = '申请中…'; $('#loginLog').classList.add('hide');
+  try {
+    const r = await api('/admin/login/start', { method: 'POST', body: '{}' });
+    loginId = r.loginId; $('#btnLoginCancel').classList.remove('hide');
+    $('#qrImg').src = r.qrImage; $('#qrWrap').classList.remove('hide');
+    $('#loginInfo').textContent = '等待扫码';
+    loginTimer = setInterval(() => pollLogin(r.loginId), 2500);
+  } catch (e) { $('#loginInfo').textContent = '失败: ' + e.message; }
+};
+$('#btnLoginCancel').onclick = async () => {
+  if (!loginId) return;
+  try { await api(`/admin/login/${encodeURIComponent(loginId)}/cancel`, { method: 'POST' }); } catch (e) { return tip(e.message, 'bad'); }
+  clearInterval(loginTimer); loginTimer = null; loginId = null;
+  $('#btnLoginCancel').classList.add('hide'); $('#qrWrap').classList.add('hide');
+  $('#loginInfo').textContent = '已取消，浏览器已回收';
+};
+async function pollLogin(id) {
+  try {
+    const r = await api('/admin/login/' + encodeURIComponent(id));
+    $('#qrState').textContent = `${r.status}${r.expiresAt ? ' · 有效至 ' + new Date(r.expiresAt).toLocaleTimeString() : ''}`;
+    if (r.qrImage) $('#qrImg').src = r.qrImage;
+    if (r.log?.length || r.seen?.length) {
+      $('#loginLog').classList.remove('hide');
+      $('#loginLog').textContent = (r.log || []).join('\n')
+        + (r.seen?.length ? '\n—— 浏览器经过的登录/回调地址 ——\n' + r.seen.join('\n') : '');
+    }
+    if (r.status === 'done') {
+      clearInterval(loginTimer); loginTimer = null; $('#btnLoginCancel').classList.add('hide');
+      // 「已入池」不区分新增与就地更新过：删号后再扫同一个微信号，看到成功却发现号池反而少一个，
+      // 会以为加号功能坏了。unionid 命中时数量不变，这句必须说出来并给下一步。
+      if (r.reused) {
+        $('#loginInfo').textContent = `这个微信号本来就在池里：已就地更新 ${r.reused} 的凭据，号池数量不变（${r.poolSize ?? '?'} 个）`;
+        tip('扫出来的号已在池里，只换了凭据 —— 要加新号得用另一个微信号扫码');
+      } else {
+        $('#loginInfo').textContent = `已新增账号 ${r.account?.id}${r.poolSize ? `，号池共 ${r.poolSize} 个` : ''}`;
+        tip('新账号已入池', 'ok');
+      }
+      render();
+    } else if (r.status === 'expired' || r.status === 'failed') {
+      clearInterval(loginTimer); loginTimer = null; $('#btnLoginCancel').classList.add('hide');
+      $('#loginInfo').textContent = r.status === 'expired' ? '二维码已过期，请重新生成' : '失败（原因见下方日志）';
+      // 失败原因是一整段话，塞在 dim span 里等于没有 —— 直接把过程日志摊开
+      if (r.error) {
+        $('#loginLog').classList.remove('hide');
+        $('#loginLog').textContent = r.error + '\n\n—— 过程日志 ——\n' + (r.log || []).join('\n');
+      }
+    } else $('#loginInfo').textContent = r.status === 'saving' ? '已取到凭据，正在写入号池…'
+      : r.status === 'scanned' ? '已扫码，请在手机上确认' : '等待扫码';
+  } catch (e) { clearInterval(loginTimer); loginTimer = null; $('#loginInfo').textContent = '轮询失败: ' + e.message; }
+}
+
+/* ---------------- 接入示例 ---------------- */
+function renderSnippets() {
+  const o = location.origin, K = $('#apiKey').value || CK || '<你的密钥>';
+  $('#snipOpenai').textContent =
+`# OpenAI SDK / 一切兼容 OpenAI 的客户端
+base_url = "${o}/v1"
+api_key  = "${K}"
+
+curl ${o}/v1/chat/completions \\
+  -H "Authorization: Bearer ${K}" -H "content-type: application/json" \\
+  -d '{"model":"qclaw/pool-glm-5.2","messages":[{"role":"user","content":"你好"}],"max_tokens":2048}'`;
+  $('#snipResp').textContent =
+`# Responses API —— ChatGPT / Codex 等新客户端走这个，不是 chat/completions
+curl ${o}/v1/responses \\
+  -H "Authorization: Bearer ${K}" -H "content-type: application/json" \\
+  -d '{"model":"qclaw/pool-glm-5.2","input":"你好","max_output_tokens":2048,"stream":true}'
+
+# 也支持 instructions + input 数组（content 用 input_text）
+{"model":"qclaw/pool-glm-5.2","instructions":"简洁回答",
+ "input":[{"role":"user","content":[{"type":"input_text","text":"你好"}]}]}
+
+返回是 response 对象：output[]（message / reasoning / function_call）、output_text、usage.input_tokens|output_tokens。
+流式重放 Responses 事件：response.created → in_progress → output_item.added → output_text.delta → …done → response.completed。
+不支持 conversation / previous_response_id / store 等有状态特性（上游没有会话存储，会明确返回 400 而不是假装支持）。`;
+  $('#snipAnth').textContent =
+`# Anthropic SDK（走 /v1/messages，报文自动互转）
+base_url = "${o}"
+api_key  = "${K}"
+
+curl ${o}/v1/messages \\
+  -H "Authorization: Bearer ${K}" -H "anthropic-version: 2023-06-01" -H "content-type: application/json" \\
+  -d '{"model":"qclaw/pool-glm-5.2","max_tokens":2048,"messages":[{"role":"user","content":"你好"}]}'`;
+  $('#snipStream').textContent =
+`加 "stream": true 即为 SSE。分片里 choices[0].delta.content 是正文，
+delta.reasoning_content 是思考过程（pool-* 多为推理模型）。结束标志 data: [DONE]。
+
+注意：这些模型会先消耗预算写思考，max_tokens 太小会得到空正文 + finish_reason=length，建议 ≥1024。`;
+  $('#snipOpts').textContent =
+`x-qclaw-session: <会话id>   同一会话固定落到同一个账号（KV 缓存更友好）；不带则加权轮询
+x-qclaw-account: <账号id>   强制指定号池里的某个账号（调试用）
+GET /v1/models              只返回该密钥白名单内的模型；带 capabilities（会不会思考）、creditRate（积分倍率）
+"stream_options":{"include_usage":true}   上游从不返回 usage，网关会在 [DONE] 前补一帧估算值
+
+错误语义：400 请求参数被上游拒绝（不会因此冷却号池账号）· 401 密钥无效/过期 · 403 已停用或模型不在白名单
+· 429 触发限流或日配额（带 retry-after）· 5xx 上游异常
+限流与配额都在网关侧按密钥执行，见「密钥」页每把的限额。`;
+  $('#snipTools').textContent =
+`# 工具调用：三个入口都可用（上游原生支持 chat 工具，实测 finish_reason=tool_calls）
+curl ${o}/v1/chat/completions -H "Authorization: Bearer ${K}" -H "content-type: application/json" -d '{
+  "model":"qclaw/pool-deepseek-v4-flash","max_tokens":1024,"tool_choice":"auto",
+  "messages":[{"role":"user","content":"上海现在天气怎么样？必须调用工具查询。"}],
+  "tools":[{"type":"function","function":{"name":"get_weather","description":"查询城市天气",
+    "parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}]
+}'
+# 把结果按 tool_call_id 以 role:"tool" 回传即可续写（多轮工具链已实测通过）
+# /v1/messages 用 Anthropic 的 tools + input_schema，出口转成 tool_use 块（参数走 input_json_delta）
+# /v1/responses 用扁平 tools（{type,name,parameters}），出口转成 function_call 项
+
+# 思考深度：上游只实现「开 / 关」，档位无效
+{"reasoning_effort":"none"}        关掉思考（默认开）—— 实测 reasoning_content 直接为空
+{"thinking":{"type":"disabled"}}   同上，Anthropic 写法，三个入口都认
+# low / medium / high 与 thinking.budget_tokens 都不改变思考量（同一题目实测 556/1071/611 字符，属噪声），
+# 所以别按档位规划积分；哪些模型会思考看 GET /v1/models 的 capabilities 含「深度思考」/ canThink。
+# 思考内容回传：chat = delta.reasoning_content，Anthropic = thinking 块（排在正文前），Responses = reasoning 项`;
+  $$('[data-snip]').forEach(b => { b.onclick = () => copy(document.getElementById(b.dataset.snip).textContent); });
+}
+
+/* ---------------- 框架 ---------------- */
+async function render() {
+  let s;
+  try { s = await api('/admin/state'); } catch (e) {
+    if (String(e.message).includes('token')) return logout();
+    return tip('加载失败: ' + e.message, 'bad');
+  }
+  STATE = s;
+  $('#ver').textContent = 'v' + (s.version || '?');
+  $('#uptime').textContent = `${s.accounts.length} 账号 · ${s.models.length} 模型 · 运行 ${Math.round(s.uptimeMs / 1000)}s`;
+  try { KEYS = (await api('/admin/keys')).keys; } catch (e) { KEYS = []; }
+  if (!KEYS.some(k => k.key === CK)) { CK = KEYS.find(k => k.enabled !== false)?.key || ''; localStorage.setItem('qpp.ckey', CK); }
+  renderOverview(s); renderKeys(); renderPool(s); renderSnippets(); renderChat();
+}
+
+function logout() { clearInterval(timer); timer = null; T = ''; localStorage.removeItem('qpp.admin'); $('#app').classList.add('hide'); $('#bar').classList.add('hide'); $('#login').classList.remove('hide'); }
+function enter() {
+  if (!T) return tip('请输入令牌', 'bad');
+  $('#login').classList.add('hide'); $('#bar').classList.remove('hide'); $('#app').classList.remove('hide');
+  const v = localStorage.getItem('qpp.view');
+  if (v && $$('#nav button').some(b => b.dataset.v === v)) $$('#nav button').find(b => b.dataset.v === v).click();
+  render();
+  clearInterval(timer);   // 重复 enter 会叠加定时器，退出后还会继续打接口
+  timer = setInterval(() => { if ($('#autoRef').checked) render(); }, 8000);
+}
+$('#btnLogin').onclick = () => { T = $('#tok').value.trim(); localStorage.setItem('qpp.admin', T); enter(); };
+$('#tok').onkeydown = e => { if (e.key === 'Enter') $('#btnLogin').click(); };
+$('#btnLogout').onclick = logout;
+$('#btnRefresh').onclick = () => { render(); loadLog(); };
+if (SYS) { $('#cSysTxt').value = SYS; $('#sysWrap').classList.remove('hide'); }
+if (T) { $('#tok').value = T; enter(); }
+</script>
+</body>
+</html>
