@@ -279,6 +279,9 @@ npm run dev          # 本机 5173 起 vite，/admin 与 /v1 代理到 127.0.0.1
 npm run build        # tsc 类型检查 + vite 打包到 web/
 ```
 
+`web/` 是构建产物，**不在版本库里**（见 `.gitignore`）。要么按上面三步自己构建，要么直接下载
+[Releases](../../releases) 里与源码同版本的 `web-<tag>.zip`，解压到仓库根目录即可，服务端会原样静态托管它。
+
 - **号池序号 = 调用优先级**：账号可带 `priority`（从 0 起，越小越优先）。调度只在**最小序号那一档**内轮转，
   那一档全部冷却/停用才落到下一档 —— 语义是"先榨干这个号"，不是"按序号分流量"；`weight` 只在同档内做次级排序。
   没编号的排在最后（`Pool.pri()` 里 `null` 绝不能过 `Number()` —— 那会变成 0，正好反了）。
@@ -425,13 +428,15 @@ src/login.mjs       无头浏览器扫码登录引擎
 src/cdp.mjs         零依赖手写 WebSocket + CDP 客户端
 src/config.mjs      配置加载/校验/落盘（强制 0600），${env:VAR} 展开
 src/bootstrap.mjs   Windows 侧账号提取（DPAPI + AES-256-GCM），同时产出直连账号
-web/index.html      WebUI 控制台（单文件，无构建）
+ui/src/             控制台前端源码（Vite + React + TS + Tailwind v4 + shadcn/ui）
+ui/src/views/       六个视图：概览 / 密钥 / 号池 / 对话 / 日志 / 接入
+web/                上面的构建产物（npm run build 生成，不在版本库；可作为 Release 资产下载）
 scripts/test.mjs              回归门禁：串行跑下面五个离线套件并汇总断言数（npm test，178 项）
 scripts/harness.mjs           一次性自桩实例（假总线 + 假 aizone 上游 + 假登录页 + tmpdir 配置 + 起代理）
-scripts/verify.mjs            端到端验收（--self 走自桩 72 项；不带 --self 打真号池 70 项）
+scripts/verify.mjs            端到端验收（--self 走自桩 81 项；不带 --self 打真号池 79 项）
 scripts/respond-test.mjs      报文转换离线测试（假 res/假上游，含背压与断开 + 思考/工具映射；28 项，不需要活号池）
 scripts/admin-guard-test.mjs  管理面来源闸回归（含伪造 X-Forwarded-For 必须被拒；7 项）
-scripts/login-e2e.mjs         扫码登录离线端到端（桩登录页 + 桩总线；6 场景 32 项，含 luban 抖动重试与签名校验）
+scripts/login-e2e.mjs         扫码登录离线端到端（桩登录页 + 桩总线；9 个场景 51 项，含 luban 抖动重试与签名校验）
 scripts/models-sweep.mjs      逐模型验收（live 层）：确认每个 qclaw/* 都能真的吐 token
 deploy/             systemd 单元与环境文件模板
 ```
