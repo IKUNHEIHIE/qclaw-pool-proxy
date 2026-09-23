@@ -12,13 +12,13 @@
 ### 两层测试，别把结论混着用
 
 ```bash
-npm test                                              # 178 项断言：离线、零凭据、不花积分 —— 这是回归门禁
-BASE=http://<host>:8787 npm run verify:live -- <vk-…> <admin-…>   # 同一支脚本换打真号池（81 项）：验"腾讯今天还认我们"
+npm test                                              # 184 项断言：离线、零凭据、不花积分 —— 这是回归门禁
+BASE=http://<host>:8787 npm run verify:live -- <vk-…> <admin-…>   # 同一支脚本换打真号池：验"腾讯今天还认我们"
 ```
 
 `npm test` 串行跑五个套件：`respond-test`（28 项，报文转换）、`pool-priority-test`（11 项，号池调用优先级）、
 `admin-guard-test`（7 项，来源闸）、`login-e2e`（51 项，扫码链路，需本机有 Chrome/Edge）、
-`verify.mjs --self`（81 项，自桩代理实例，含 WebUI 构建产物检查）。
+`verify.mjs --self`（87 项，自桩代理实例，含 WebUI 构建产物检查）。live 实测 85 项（少的 2 项是自桩专属守卫）。
 
 `--self` 的桩在 `scripts/harness.mjs`：假 jprx 总线 + 假 aizone 推理上游 + 假登录页，外加一份落在
 `os.tmpdir()` 的一次性配置（里面的 `sk-`/JWT **全是本机现造的假值**，跑完即删）。桩按实测契约回答：
@@ -286,9 +286,11 @@ npm run build        # tsc 类型检查 + vite 打包到 web/
   那一档全部冷却/停用才落到下一档 —— 语义是"先榨干这个号"，不是"按序号分流量"；`weight` 只在同档内做次级排序。
   没编号的排在最后（`Pool.pri()` 里 `null` 绝不能过 `Number()` —— 那会变成 0，正好反了）。
   号池页每行可直接改序号（失焦即 `PATCH /admin/accounts/:id`），「按顺序重排序号」把删号留下的洞补成连续 0…N-1。
-- **手动测活**：每行「测活」加顶部「全部测活」，走 `POST /admin/accounts/:id/test`（真发一次 64 token 的推理请求；
-  停用/冷却中的号也测得到，`allowUnavailable` 是服务端的事）。全部测活**按序号逐个打**，不并发 ——
-  每个号都要真花积分，并发还容易被上游 RPM 拦，把"谁先掉线"的顺序信息搅成一团。
+- **测活 = 查积分**（同一个动作，走 `POST /admin/accounts/:id/probe`）：探针是总线 4110 那一次积分查询 ——
+  它和推理吃同一套登录态，却能一次都不花额度。查得到就顺手把余额刷新，**查不到就是这个号掉线或被封**，
+  状态列直接标「需要重新登录」并按既有 auth 冷却摘出轮询；只有"根本没连通"才判成「暂不可达」不定罪
+  （否则一次总线抖动能把整个池子清空）。非直连账号没有总线身份，探针退化成"能不能拉到自己目录"。
+  真发一次推理的深度测活收进每行的「…」菜单（`/test`，仍走 `allowUnavailable`）。批量按序号逐个查，不并发。
 - **登录**：按定下的口径保持现状 —— 管理面仍由 `adminToken` 这把 Bearer 守着（没令牌时 `/admin/*` 一律 401），
   登录页只是把它收进一个密码框，值只写本机 localStorage。
 - **对话**：新增「思考」开关与多会话。关思考是显式发 `reasoning_effort:"none"`（上游只认开/关，档位无效）；
@@ -419,7 +421,7 @@ SSH_PASS=<密码> DEPLOY_KEEP_CONFIG=1 python tools/deploy.py
 src/server.mjs      HTTP 入口、路由、鉴权、限流、CORS、管理端点
 src/respond.mjs     上游响应 → 客户端报文的四个象限（OpenAI/Anthropic × JSON/SSE），含背压与断开处理
 src/keys.mjs        对外密钥：签发/轮换/限额/配额/模型白名单/用量计量/请求日志
-src/pool.mjs        号池状态机：健康度、冷却、加权轮询、粘性路由、失败换号
+src/pool.mjs        号池状态机：健康度、冷却、加权轮询、粘性路由、失败换号、体检（查积分即测活）
 src/upstream.mjs    上游适配（qclaw-aizone / openclaw-gateway / openai-compat）
 src/qclaw-api.mjs   jprx 总线 + luban 网关客户端（目录 4320 / 倍率 4327 / 签发 sk- 4055 / 积分 4110 / 今日 token 4075 / 身份 4027 / code 兑换）
 src/reasoning.mjs   思考深度参数跨入口归一（只有开/关有效，档位与 budget 上游不生效）
@@ -431,9 +433,9 @@ src/bootstrap.mjs   Windows 侧账号提取（DPAPI + AES-256-GCM），同时产
 ui/src/             控制台前端源码（Vite + React + TS + Tailwind v4 + shadcn/ui）
 ui/src/views/       六个视图：概览 / 密钥 / 号池 / 对话 / 日志 / 接入
 web/                上面的构建产物（npm run build 生成，不在版本库；可作为 Release 资产下载）
-scripts/test.mjs              回归门禁：串行跑下面五个离线套件并汇总断言数（npm test，178 项）
+scripts/test.mjs              回归门禁：串行跑下面五个离线套件并汇总断言数（npm test，184 项）
 scripts/harness.mjs           一次性自桩实例（假总线 + 假 aizone 上游 + 假登录页 + tmpdir 配置 + 起代理）
-scripts/verify.mjs            端到端验收（--self 走自桩 81 项；不带 --self 打真号池 79 项）
+scripts/verify.mjs            端到端验收（--self 走自桩 87 项；不带 --self 打真号池 85 项）
 scripts/respond-test.mjs      报文转换离线测试（假 res/假上游，含背压与断开 + 思考/工具映射；28 项，不需要活号池）
 scripts/admin-guard-test.mjs  管理面来源闸回归（含伪造 X-Forwarded-For 必须被拒；7 项）
 scripts/login-e2e.mjs         扫码登录离线端到端（桩登录页 + 桩总线；9 个场景 51 项，含 luban 抖动重试与签名校验）

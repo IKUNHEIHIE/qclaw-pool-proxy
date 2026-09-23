@@ -19,18 +19,22 @@ import type { ConsoleProps } from '@/App';
 
 const statusPill = (a: Account) =>
   !a.enabled ? <Pill tone="warn">已停用</Pill>
-    : a.cooldownSecondsLeft > 0 ? <Pill tone="warn">冷却 {a.cooldownSecondsLeft}s</Pill>
-      : a.ok ? <Pill tone="ok">健康</Pill> : <Pill tone="bad">异常</Pill>;
+    : a.needLogin ? <Pill tone="bad">需要重新登录</Pill>
+      : a.cooldownSecondsLeft > 0 ? <Pill tone="warn">冷却 {a.cooldownSecondsLeft}s</Pill>
+        : a.ok ? <Pill tone="ok">健康</Pill> : <Pill tone="bad">异常</Pill>;
 
+/** 体检结论：查得到积分就是通，查不到就是掉线/被封，没连通则不定罪 */
 const probePill = (p?: Probe) =>
-  !p ? null : p.state === 'running' ? <Pill tone="dim">测活中…</Pill>
-    : p.state === 'ok' ? <Pill tone="ok" title={p.reply || ''}>通 {p.ms}ms</Pill>
-      : <Pill tone="bad" title={p.error || ''}>不通</Pill>;
+  !p ? null : p.state === 'running' ? <Pill tone="dim">查询中…</Pill>
+    : p.state === 'alive' ? <Pill tone="ok" title={p.reason || ''}>通 {p.ms}ms{p.balance != null ? ` · ${pt(p.balance)} 分` : ''}</Pill>
+      : p.state === 'need_login' ? <Pill tone="bad" title={p.reason || ''}>需要重新登录</Pill>
+        : p.state === 'unreachable' ? <Pill tone="warn" title={p.reason || ''}>暂不可达</Pill>
+          : <Pill tone="bad" title={p.reason || ''}>不通</Pill>;
 
 /** 积分余额（4110）—— QClaw 客户端右上角那个数，也是"这个号还能不能用"的真口径 */
 function CreditsCell({ c }: { c: Account['credits'] }) {
   if (!c) return <span className="text-muted-foreground text-xs">未查询</span>;
-  if (c.error) return <span className="text-muted-foreground text-xs" title={c.error}>查询失败</span>;
+  if (c.error) return <span className="text-destructive text-xs" title={c.error}>查不到积分</span>;
   const granted = (c.items || []).reduce((s, i) => s + (Number(i.total) || 0), 0);
   const pct = granted ? Math.min(100, Math.max(0, (1 - (Number(c.balance) || 0) / granted) * 100)) : 0;
   const detail = (c.items || []).map(i => `${i.label}：剩 ${i.remain} / 共 ${i.total}${i.expireAt ? '（至 ' + String(i.expireAt).slice(0, 10) + '）' : ''}`).join('\n');
@@ -90,33 +94,57 @@ export default function Pool({ s, reload, go }: ConsoleProps) {
   const setProbe = (id: string, p: Probe | undefined) =>
     setProbes(prev => { const n = { ...prev }; if (p) n[id] = p; else delete n[id]; return n; });
 
-  /** 单个账号测活：走 /admin/accounts/:id/test，allowUnavailable 由服务端负责 */
-  const probeOne = useCallback(async (id: string, quiet = false) => {
+  /**
+   * 单个账号体检 = 查积分。走 /admin/accounts/:id/probe：一次 4110 总线查询，
+   * 既刷新余额又判定生死，不烧推理额度（真发一次要占 64 token）。
+   */
+  const checkOne = useCallback(async (id: string, quiet = false) => {
+    setProbe(id, { state: 'running' });
+    try {
+      const r = await api<Probe>(`/admin/accounts/${encodeURIComponent(id)}/probe`, { method: 'POST', body: '{}' });
+      setProbe(id, r);
+      if (!quiet) (r.state === 'alive' ? toast.success : toast.error)(`${id}：${r.reason || r.state}`);
+      return r.state;
+    } catch (e) {
+      setProbe(id, { state: 'bad', reason: (e as Error).message });
+      if (!quiet) toast.error(`${id} 体检失败：${(e as Error).message}`);
+      return 'bad';
+    }
+  }, []);
+
+  /** 深度测活：真发一次推理，验的是"积分之外整条链还通不通"（sk-、模型目录），代价是额度 */
+  const deepTest = useCallback(async (id: string) => {
     setProbe(id, { state: 'running' });
     const t0 = Date.now();
     try {
       const r = await api<{ account: string; reply: string | null }>(`/admin/accounts/${encodeURIComponent(id)}/test`, { method: 'POST', body: '{}' });
-      setProbe(id, { state: 'ok', ms: Date.now() - t0, reply: r.reply || '(空正文)' });
-      if (!quiet) toast.success(`${id} 通 ${Date.now() - t0}ms：${(r.reply || '').slice(0, 24)}`);
-      return true;
+      setProbe(id, { state: 'alive', ms: Date.now() - t0, reason: `回了：${(r.reply || '(空正文)').slice(0, 20)}` });
+      toast.success(`${id} 推理通 ${Date.now() - t0}ms：${(r.reply || '').slice(0, 24)}`);
     } catch (e) {
-      setProbe(id, { state: 'bad', ms: Date.now() - t0, error: (e as Error).message });
-      if (!quiet) toast.error(`${id} 不通：${(e as Error).message}`);
-      return false;
+      setProbe(id, { state: 'bad', ms: Date.now() - t0, reason: (e as Error).message });
+      toast.error(`${id} 推理不通：${(e as Error).message}`);
     }
   }, []);
 
   /**
-   * 一键测活按序号顺序逐个打，不并发：每个号都要真发一次推理请求（64 token），
-   * 并发既容易被上游 RPM 拦，也会把"谁先掉线"这种顺序信息搅成一团。
+   * 一键体检按序号顺序逐个查，不并发：并发会把"谁先掉线"这种顺序信息搅成一团，
+   * 而且总线对同 IP 的突发请求并不友好（实测偶发单接口不可达）。
    */
-  const probeAll = async () => {
+  const checkAll = async () => {
     setBatch(true);
-    const bad: string[] = [];
-    for (const a of accts) if (!(await probeOne(a.id, true))) bad.push(a.id);
+    const dead: string[] = [];
+    const unreachable: string[] = [];
+    for (const a of accts) {
+      const st = await checkOne(a.id, true);
+      if (st === 'need_login' || st === 'bad') dead.push(a.id);
+      else if (st === 'unreachable') unreachable.push(a.id);
+    }
     setBatch(false);
-    const msg = bad.length ? `${accts.length - bad.length}/${accts.length} 通，不通：${bad.join('、')}` : `${accts.length} 个账号全部通`;
-    (bad.length ? toast.error : toast.success)(msg);
+    const parts = [`${accts.length - dead.length - unreachable.length}/${accts.length} 查得到积分`];
+    if (dead.length) parts.push(`需要重新登录：${dead.join('、')}`);
+    if (unreachable.length) parts.push(`暂不可达（重试即可）：${unreachable.join('、')}`);
+    const msg = parts.join(' · ');
+    (dead.length ? toast.error : unreachable.length ? toast.info : toast.success)(msg);
     void reload();
   };
 
@@ -220,6 +248,8 @@ export default function Pool({ s, reload, go }: ConsoleProps) {
     catch (e) { toast.error((e as Error).message); }
   };
 
+  const dead = accts.filter(a => a.needLogin);
+
   return (
     <>
       <Card>
@@ -227,16 +257,21 @@ export default function Pool({ s, reload, go }: ConsoleProps) {
           <div className="grid gap-1.5">
             <CardTitle>账号池</CardTitle>
             <CardDescription>
-              登录态取自 JWT 的 <span className="font-mono">exp</span>；到点会由服务端 21004 触发冷却换号，需重新登录或换号补池。
               <span className="ml-1">「序号」即调用优先级：<b>数字越小越优先</b>，同号池内先榨干序号最小的那一档。</span>
+              <span className="ml-1"><b>「查积分」就是测活</b>：一次积分查询既刷新余额又判定生死，不占推理额度；<b>查不到积分即说明该号已掉线或被封</b>，需重新扫码登录。登录态取自 JWT 的 <span className="font-mono">exp</span>。</span>
             </CardDescription>
+            {!!dead.length && (
+              <div className="text-xs text-destructive">
+                {dead.length} 个号查不到积分（{dead.map(a => a.id).join('、')}）—— 用下方「生成登录二维码」让<b>同一个微信号</b>再扫一次即可就地换回凭据。
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => act(() => api('/admin/catalog/refresh', { method: 'POST' }), '目录已重载')}>
               <RefreshCw className="size-3.5" />重载全部目录
             </Button>
-            <Button id="btnProbeAll" size="sm" variant="outline" disabled={batch || !accts.length} onClick={() => void probeAll()}>
-              <Stethoscope className="size-3.5" />{batch ? '测活中…' : '全部测活'}
+            <Button id="btnProbeAll" size="sm" variant="outline" disabled={batch || !accts.length} onClick={() => void checkAll()}>
+              <Stethoscope className="size-3.5" />{batch ? '查询中…' : '全部查积分'}
             </Button>
             <Button id="btnResequence" size="sm" variant="ghost" onClick={() => void resequence()}>按顺序重排序号</Button>
           </div>
@@ -249,7 +284,7 @@ export default function Pool({ s, reload, go }: ConsoleProps) {
                 <TableHead>账号</TableHead><TableHead>类型 / 地址</TableHead><TableHead>状态</TableHead>
                 <TableHead>请求/成功/失败 · 延迟</TableHead><TableHead>模型</TableHead>
                 <TableHead>积分余额</TableHead><TableHead>今日 token</TableHead><TableHead>试用/购买</TableHead>
-                <TableHead>登录态</TableHead><TableHead>测活</TableHead><TableHead className="text-right">操作</TableHead>
+                <TableHead>登录态</TableHead><TableHead>体检</TableHead><TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -288,10 +323,13 @@ export default function Pool({ s, reload, go }: ConsoleProps) {
                       ? <span className={a.jwtExp.daysLeft < 7 ? 'text-warning' : ''}>至 {a.jwtExp.at}（剩 {a.jwtExp.daysLeft}d）</span>
                       : '—'}
                   </TableCell>
-                  <TableCell>{probePill(probes[a.id]) || <span className="text-xs text-muted-foreground">未测</span>}</TableCell>
+                  <TableCell>{probePill(probes[a.id])
+                    || (a.needLogin ? <Pill tone="bad">需要重新登录</Pill> : <span className="text-xs text-muted-foreground">未查</span>)}
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap justify-end gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => void probeOne(a.id)}>测活</Button>
+                      <Button size="sm" variant="ghost" disabled={batch} title="刷新积分余额，并以此判定该号是否还活着"
+                        onClick={() => void checkOne(a.id)}>查积分</Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button size="icon" variant="ghost" title="更多操作" aria-label={'更多操作 ' + a.id}>
@@ -303,9 +341,9 @@ export default function Pool({ s, reload, go }: ConsoleProps) {
                             localStorage.setItem(LS.useAcct, a.id);
                             go('chat');
                           }}>用它对话</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => void act(
-                            () => api('/admin/accounts/' + encodeURIComponent(a.id) + '/refresh', { method: 'POST' }),
-                            a.id + ' 目录已重查')}>刷新目录与积分</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => void deepTest(a.id)}>
+                            深度测活（真发一次推理，占 64 token 额度）
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => void act(
                             () => api('/admin/accounts/' + encodeURIComponent(a.id) + '/' + (a.enabled ? 'disable' : 'enable'), { method: 'POST' }),
                             a.enabled ? '已停用 ' + a.id + '：号池不再把它派给任何请求' : '已启用 ' + a.id + '（冷却状态已一并清除）'

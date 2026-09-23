@@ -4,6 +4,19 @@ import { supportsThinking } from './reasoning.mjs';
 
 const now = () => Date.now();
 const RATES_TTL = 10 * 60 * 1000;
+const PROBE_TIMEOUT = 12000;
+
+/**
+ * 这套凭据是否被**确定性地**拒了。
+ *
+ * 总线带业务码回来（21004 登录态失效一类）= 服务端认得这个请求但不再认这套登录态；
+ * 只有没连通/非 JSON/HTTP 5xx 才是"不能定罪"——实测总线偶发单接口抖动，
+ * 一次网络抖就把号判死，等于把整个池子交给链路质量。
+ */
+function authRejected(e) {
+  if (e && e.code !== undefined && Number(e.code) !== 0) return true;
+  return e?.status === 401 || e?.status === 403 || e?.kind === 'auth';
+}
 
 /**
  * 号池：维护每个账号的健康度、冷却与目录缓存，并按策略挑选账号。
@@ -30,7 +43,7 @@ export class Pool {
   runtime(id) {
     let s = this.state.get(id);
     if (!s) {
-      s = { cooldownUntil: 0, failStreak: 0, ok: true, lastError: null, lastCheck: 0, lastLatencyMs: null, requests: 0, successes: 0, failures: 0, catalog: [], catalogAt: 0, quota: null, credits: null, tokens: null, identity: null };
+      s = { cooldownUntil: 0, failStreak: 0, ok: true, lastError: null, lastCheck: 0, lastLatencyMs: null, requests: 0, successes: 0, failures: 0, catalog: [], catalogAt: 0, quota: null, credits: null, tokens: null, identity: null, needLogin: false };
       this.state.set(id, s);
     }
     return s;
@@ -105,7 +118,7 @@ export class Pool {
 
   markSuccess(id, latencyMs) {
     const s = this.runtime(id);
-    s.ok = true; s.failStreak = 0; s.lastError = null; s.lastCheck = now();
+    s.ok = true; s.failStreak = 0; s.lastError = null; s.lastCheck = now(); s.needLogin = false;
     s.lastLatencyMs = latencyMs; s.requests++; s.successes++;
     this.stats.successes++;
     this.byAccount(id).successes++;
@@ -201,6 +214,59 @@ export class Pool {
     );
   }
 
+  /**
+   * 体检 = 查积分：一次 4110 查询同时回答"这个号还活着吗"和"还剩多少分"。
+   *
+   * 为什么拿积分查询当探针、而不是真发一次推理：推理要占 64 token 免费额度，例行体检不该花钱；
+   * 而积分与推理吃的是同一套登录态（X-OpenClaw-Token），凭据一死它必然先拒。
+   * 查不到积分就是用户要看的那个信号 —— 号要么掉线要么被封，只能重新扫码。
+   * 三种结论分开：alive（查到了，余额已刷新）/ need_login（服务端带码拒了）/
+   * unreachable（没连通，不定罪，见 authRejected）。今日 token 顺带一起刷：
+   * 界面把两列并排放，只刷一半会留下"积分是新的、token 还是上次刷新时的"。
+   */
+  async probe(id) {
+    const acc = this.account(id);
+    if (!acc) throw new UpstreamError(`未知账号 ${id}`, { status: 404, kind: 'unknown_account' });
+    const s = this.runtime(id);
+    const t0 = now();
+    const out = { id: acc.id, state: 'unreachable', ms: 0, balance: null, reason: '' };
+    const finish = r => {
+      s.needLogin = r.state === 'need_login';
+      r.ms = now() - t0;
+      return r;
+    };
+
+    if (acc.type !== 'qclaw-aizone') {
+      // 非直连账号没有总线身份可查，退化成"能不能拉到自己的模型目录"（一次 GET，不产生 token）
+      try {
+        const models = await fetchModels(acc, Math.min(this.cfg.upstream.timeoutMs, PROBE_TIMEOUT));
+        this.markSuccess(id, now() - t0);
+        s.catalog = models; s.catalogAt = now();
+        return finish({ ...out, state: 'alive', reason: `目录 ${models.length} 个模型` });
+      } catch (e) {
+        if (authRejected(e)) this.markFailure(id, { kind: 'auth', message: e.message });
+        else s.lastCheck = now();
+        return finish({ ...out, state: authRejected(e) ? 'need_login' : 'unreachable', reason: e.message });
+      }
+    }
+
+    const auth = { guid: acc.guid, account: acc.account, jwt: acc.jwt };
+    const grab = fn => fn(auth, { timeoutMs: PROBE_TIMEOUT }).then(v => ({ v }), e => ({ e }));
+    const [c, t] = await Promise.all([grab(busCredits), grab(busTokens)]);
+    if (t.v) s.tokens = t.v; else if (t.e) s.tokens = { error: t.e.message };
+    if (c.e) {
+      s.credits = { error: c.e.message };
+      const dead = authRejected(c.e);
+      // 判死的号走既有的 auth 冷却机制摘出轮询，不另发明一套"禁用"状态
+      if (dead) this.markFailure(id, { kind: 'auth', message: c.e.message });
+      else s.lastCheck = now();
+      return finish({ ...out, state: dead ? 'need_login' : 'unreachable', reason: `积分查询失败：${c.e.message}` });
+    }
+    s.credits = c.v;
+    this.markSuccess(id, now() - t0);
+    return finish({ ...out, state: 'alive', balance: c.v.balance, reason: `余额 ${c.v.balance} 分` });
+  }
+
   async refreshCatalog(id) {
     const acc = this.account(id);
     if (!acc) throw new Error('未知账号 ' + id);
@@ -214,7 +280,8 @@ export class Pool {
       throw new UpstreamError(`目录拉取失败 (${id}): ${e.message}`, { status: 502, kind: 'catalog', retryable: true, account: id });
     }
     const s = this.runtime(id);
-    s.catalog = models; s.catalogAt = now(); s.ok = true; s.lastError = null; s.lastCheck = now();
+    // 总线答了目录就说明这套登录态还被认，之前判的"需要重新登录"随之作废
+    s.catalog = models; s.catalogAt = now(); s.ok = true; s.lastError = null; s.lastCheck = now(); s.needLogin = false; s.needLogin = false;
     // 额度/积分/身份查询失败都不该让整次刷新失败，但各自要留下错误原因
     if (acc.type === 'qclaw-aizone') {
       const auth = { guid: acc.guid, account: acc.account, jwt: acc.jwt };
@@ -308,6 +375,7 @@ export class Pool {
         cooldownUntil: s.cooldownUntil, cooldownSecondsLeft: Math.max(0, Math.ceil((s.cooldownUntil - now()) / 1000)),
         catalogCount: s.catalog.length, catalogAt: s.catalogAt, quota: s.quota,
         credits: s.credits, tokens: s.tokens, identity: s.identity || a.identity || null,
+        needLogin: s.needLogin === true,
         jwtExp: jwtExp(a.jwt),
         secretHint: hint(a.token || a.apiKey)
       };

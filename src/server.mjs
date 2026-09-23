@@ -367,6 +367,8 @@ async function handleAdmin(req, res, url) {
     }
     const id = seg[2];
     if (seg[3] === 'refresh') return send(res, 200, { models: await pool.refreshCatalog(id) });
+    // 体检即查积分（见 Pool.probe）：一次轻量总线查询，不烧推理额度
+    if (seg[3] === 'probe') return send(res, 200, await pool.probe(id));
     if (seg[3] === 'test') {
       const { model, prompt, accountId } = await readJson(req);
       const out = await pool.run(model || 'qclaw/modelroute', {

@@ -628,10 +628,13 @@ async function post(p, body, headers = H) {
 
   // 游离异常单独算一项：它说明有代码路径抛了没人接的 rejection，
   // 这类问题被静默吞掉过太多次（服务崩了、响应体没消费、断言根本没跑）
-  // ---- 号池优先级（序号越小越优先）与手动测活：界面字面量 + 端点行为都要有结论 ----
+  // ---- 号池优先级（序号越小越优先）与体检（=查积分）：界面字面量 + 端点行为都要有结论 ----
   ok('WebUI 号池页有「序号」优先级列与重排入口',
-    /btnProbeAll/.test(html) && /btnResequence/.test(html) && /prio-/.test(html) && /全部测活/.test(html),
-    '序号输入框、单个测活、全部测活、按顺序重排都在包里');
+    /btnProbeAll/.test(html) && /btnResequence/.test(html) && /prio-/.test(html) && /全部查积分/.test(html),
+    '序号输入框、单个查积分、全部查积分、按顺序重排都在包里');
+  ok('WebUI 已把测活与查积分合成一个动作（并说清查不到积分=要重新登录）',
+    /查积分/.test(html) && /probe/.test(html) && /需要重新登录/.test(html) && !/全部测活/.test(html),
+    '按钮走 /probe，判死文案是「需要重新登录」');
   ok('WebUI 对话页有思考开关与新建对话',
     /cThink/.test(html) && /reasoning_effort/.test(html) && /cNew/.test(html) && /新建对话/.test(html),
     '思考关掉时请求体带 reasoning_effort:"none"，对话按会话分列');
@@ -655,8 +658,47 @@ async function post(p, body, headers = H) {
     await patch(was == null ? 0 : was);   // 还原：不能因为跑一次验收就把使用者的号池顺序改掉
     const t = await (await fetch(BASE + '/admin/accounts/' + encodeURIComponent(target.id) + '/test',
       { method: 'POST', headers: hdr, body: '{}' })).json();
-    ok('单账号测活端点定向打到了这个号', t.account === target.id && typeof t.reply === 'string',
+    ok('深度测活端点（真发推理）仍定向打到了这个号', t.account === target.id && typeof t.reply === 'string',
       `${t.account} 回 ${(t.reply || '').slice(0, 12)}`);
+
+    // 体检与查积分合并后的核心取舍：探针换成 4110，一次都不该碰推理接口
+    const chatBefore = harness ? harness.hits.chat : 0;
+    const pv = await (await fetch(BASE + '/admin/accounts/' + encodeURIComponent(target.id) + '/probe',
+      { method: 'POST', headers: hdr, body: '{}' })).json();
+    ok('体检=查积分：不碰推理就能判定活着并拿到余额',
+      pv.state === 'alive' && typeof pv.balance === 'number' && pv.balance >= 0
+      && (!harness || harness.hits.chat === chatBefore),
+      `${pv.state} 余额=${pv.balance} 推理 +${harness ? harness.hits.chat - chatBefore : 'live 模式不计'}`);
+
+    // 假凭据账号：总线带业务码回来（21004）必须判成"要重新登录"并摘出轮询，
+    // 而不是含糊成"不通" —— 这条与下一条是"确定性拒绝"与"没连通"的分界线。
+    const dead = { id: 'verify-probe-dead', type: 'qclaw-aizone', base: 'https://mmgrcalltoken.3g.qq.com/aizone/v1/',
+      apiKey: 'sk-invalid-for-test', jwt: 'x', guid: 'y', account: '1', models: ['pool-glm-5.2'] };
+    await post('/admin/accounts/upsert', dead, { 'content-type': 'application/json', authorization: 'Bearer ' + ADMIN });
+    const dq = await (await fetch(BASE + '/admin/accounts/' + encodeURIComponent(dead.id) + '/probe',
+      { method: 'POST', headers: hdr, body: '{}' })).json();
+    const drow = (await getJson('/admin/state')).accounts.find(a => a.id === dead.id);
+    ok('查不到积分即判掉线/被封：状态「需要重新登录」且进冷却摘出轮询',
+      dq.state === 'need_login' && drow?.needLogin === true && drow?.ok === false && drow?.cooldownSecondsLeft > 0,
+      `${dq.state} needLogin=${drow?.needLogin} 冷却=${drow?.cooldownSecondsLeft}s ${(dq.reason || '').slice(0, 40)}`);
+    const dcredits = JSON.stringify(drow?.credits || {});
+    ok('判死的号留下失败原因，不会把上一次的余额当现值', /error/.test(dcredits) && !/"balance"/.test(dcredits), dcredits.slice(0, 90));
+    await fetch(BASE + '/admin/accounts/' + encodeURIComponent(dead.id), { method: 'DELETE', headers: { authorization: 'Bearer ' + ADMIN } });
+
+    // 反例：根本没连通时**不能**判成要重新登录，否则一次网络抖动能把整个池子清空。
+    // 顺带盖住非直连账号的退化路径（它们没有总线身份，探针换成拉自己的模型目录）。
+    const ghost = { id: 'verify-probe-ghost', type: 'openai-compat', base: 'http://127.0.0.1:1/v1/', apiKey: 'sk-ghost' };
+    await post('/admin/accounts/upsert', ghost, { 'content-type': 'application/json', authorization: 'Bearer ' + ADMIN });
+    const gq = await (await fetch(BASE + '/admin/accounts/' + encodeURIComponent(ghost.id) + '/probe',
+      { method: 'POST', headers: hdr, body: '{}' })).json();
+    const grow = (await getJson('/admin/state')).accounts.find(a => a.id === ghost.id);
+    ok('连不上只报「暂不可达」，不判掉线、不进冷却（不定罪）',
+      gq.state === 'unreachable' && !grow?.needLogin && grow?.cooldownSecondsLeft === 0,
+      `${gq.state} needLogin=${grow?.needLogin} 冷却=${grow?.cooldownSecondsLeft}s`);
+    await fetch(BASE + '/admin/accounts/' + encodeURIComponent(ghost.id), { method: 'DELETE', headers: { authorization: 'Bearer ' + ADMIN } });
+
+    const four04 = await fetch(BASE + '/admin/accounts/no-such-account/probe', { method: 'POST', headers: hdr, body: '{}' });
+    ok('未知账号体检返回 404 而不是 500', four04.status === 404, `HTTP ${four04.status}`);
   }
 
   if (strays.length) ok('无游离异常（未处理的 rejection / 未消费的响应体）', false, strays.slice(0, 3).join(' | '));

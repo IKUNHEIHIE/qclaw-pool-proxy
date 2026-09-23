@@ -17,14 +17,19 @@ export type Identity = {
   userId?: number | null; openid?: string; unionid?: string; nickname?: string; avatar?: string;
 } | null;
 
-/** 测活结果是浏览器侧贴在行上的，不来自 /admin/state */
-export type Probe = { state: 'running' | 'ok' | 'bad'; ms?: number; reply?: string; error?: string };
+/**
+ * 体检结果贴在浏览器侧的行上，不来自 /admin/state。
+ * alive=查到了积分；need_login=服务端带码拒了（掉线/被封）；unreachable=没连通，不定罪；
+ * bad 只用于下拉里的深度测活（真发一次推理）。
+ */
+export type Probe = { state: 'running' | 'alive' | 'need_login' | 'unreachable' | 'bad'; ms?: number; balance?: number; reason?: string };
 
 export type Account = {
   id: string; type: string; base: string; enabled: boolean; weight: number;
   priority: number | null;
   defaultAgent: string; modelAgents: Record<string, string>;
   ok: boolean; failStreak: number; lastError: string | null; lastCheck: number;
+  needLogin?: boolean;
   lastLatencyMs: number | null; requests: number; successes: number; failures: number;
   cooldownUntil: number; cooldownSecondsLeft: number;
   catalogCount: number; catalogAt: number;
